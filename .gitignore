@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# macOS
+.DS_Store
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local environment overrides
+.env.local
+.env.*.local

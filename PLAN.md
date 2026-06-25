@@ -179,11 +179,12 @@ sevenone-housekeeping-service/
 
 ## 6. Implementation Order
 
-### Phase 1: Project skeleton
-- [ ] Initialize Python project (requirements.txt, .env.example, .gitignore updates)
-- [ ] Set up FastAPI app with CORS, health check endpoint
-- [ ] Configure SQLAlchemy async engine + session management
-- [ ] Set up Alembic for migrations
+### Phase 1: Project skeleton ✅
+- [x] Initialize Python project (requirements.txt, .env.example, .gitignore updates)
+- [x] Pin Python 3.12 (`.python-version`) — 3.14 lacks wheels for pydantic-core/bcrypt
+- [x] Set up FastAPI app with CORS, health check endpoint
+- [x] Configure SQLAlchemy async engine + session management
+- [x] Set up Alembic for migrations (async, URL + metadata wired to app settings)
 
 ### Phase 2: Neon database
 - [ ] Create Neon project and database
