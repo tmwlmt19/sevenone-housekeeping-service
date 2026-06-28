@@ -204,12 +204,15 @@ sevenone-housekeeping-service/
 - [x] Generate initial Alembic migration (`286a7875aaf9`); enum types dropped in downgrade for re-upgrade safety
 - [x] Apply migration to both `main` and `test` branches; verified tables + enum types present
 
-### Phase 4: Auth
-- [ ] Password hashing utilities
-- [ ] JWT creation / verification
-- [ ] Login endpoint
-- [ ] Auth dependencies (get_current_user, role checks)
-- [ ] Seed script to create initial admin user
+### Phase 4: Auth ✅
+- [x] Password hashing utilities (bcrypt directly — dropped passlib, which is unmaintained and breaks on bcrypt 5.x)
+- [x] JWT creation / verification (python-jose; token carries `sub`=user id, `hotel_id`, `role`)
+- [x] Login endpoint (`POST /api/v1/auth/login`, JSON) + `GET /api/v1/auth/me`
+- [x] Auth dependencies (`get_current_user`, `require_roles`/`require_admin`/`require_manager_or_above`, `require_same_hotel`)
+- [x] Seed script (`python -m app.seed`) — creates a hotel + admin user, idempotent on email
+- [x] Verified full flow (bad/good login, /me with valid/missing/bad tokens)
+
+> **Phase 6 testing note:** the module-level async engine + Starlette's sync `TestClient` causes "Future attached to a different loop" errors, because TestClient spins up a new event loop per request while the pooled asyncpg connection is bound to the first. Use httpx `AsyncClient` (single loop) and `NullPool` in test fixtures.
 
 ### Phase 5: CRUD endpoints
 - [ ] Hotels router
