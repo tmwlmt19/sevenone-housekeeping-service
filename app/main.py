@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import auth
+from app.routers import auth, hotels, rooms, tasks, users
 
 settings = get_settings()
 
@@ -27,3 +27,7 @@ async def health_check() -> dict[str, str]:
 
 
 app.include_router(auth.router)
+app.include_router(hotels.router)
+app.include_router(users.router)
+app.include_router(rooms.router)
+app.include_router(tasks.router)

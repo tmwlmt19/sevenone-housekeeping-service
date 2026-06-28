@@ -214,11 +214,13 @@ sevenone-housekeeping-service/
 
 > **Phase 6 testing note:** the module-level async engine + Starlette's sync `TestClient` causes "Future attached to a different loop" errors, because TestClient spins up a new event loop per request while the pooled asyncpg connection is bound to the first. Use httpx `AsyncClient` (single loop) and `NullPool` in test fixtures.
 
-### Phase 5: CRUD endpoints
-- [ ] Hotels router
-- [ ] Users router
-- [ ] Rooms router
-- [ ] Tasks router
+### Phase 5: CRUD endpoints ✅
+- [x] Hotels router (create = admin/platform; get/update tenant-scoped)
+- [x] Users router (CRUD, manager+ for writes, email-uniqueness 409, password hashing)
+- [x] Rooms router (CRUD, unique room_number per hotel 409, room_type normalized to uppercase)
+- [x] Tasks router (CRUD + `PATCH /{id}/status`; assignee-or-manager guard; cross-entity validation 400; auto-assign on create; completing a task sets `completed_at` and marks the room clean)
+- [x] All routers tenant-scoped via `require_same_hotel` (404 on cross-tenant)
+- [x] Verified end-to-end against the `test` branch (16/16 smoke checks: CRUD, permissions, isolation, side effects)
 
 ### Phase 6: Testing
 - [ ] Test infrastructure (conftest, fixtures, test DB)
