@@ -230,9 +230,12 @@ sevenone-housekeeping-service/
 - [x] **41 tests passing.** Added `eager_defaults=True` to models so server-side defaults are fetched via RETURNING (avoids lazy IO under async / shared-session tests)
 
 ### Phase 7: Deploy
-- [ ] Railway configuration (Procfile or railway.toml)
-- [ ] Environment variables on Railway
-- [ ] Verify deployment
+- [x] Railway configuration (`railway.toml`: nixpacks, migrate-then-serve start command, `/health` check)
+- [x] DSN normalization in config so Neon's raw connection string can be pasted into Railway as-is
+- [x] Deployment guide (`docs/deployment.md`) — env vars, first-time seeding, verification
+- [x] Verified locally: `alembic upgrade head` + uvicorn boot + `/health`
+- [ ] **(User action)** Create Railway project from GitHub repo, set env vars, deploy
+- [ ] **(User action)** Seed initial admin on the prod branch; verify `/health` and `/docs`
 
 ---
 

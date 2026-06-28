@@ -7,6 +7,7 @@ FastAPI + async SQLAlchemy + PostgreSQL (Neon).
 
 - [Implementation plan](PLAN.md) — architecture, schema, and phased progress
 - [Authentication & authorization](docs/auth.md) — password hashing, JWT, roles, tenant isolation
+- [Deployment](docs/deployment.md) — Railway setup, env vars, first-time seeding
 
 ## Development
 

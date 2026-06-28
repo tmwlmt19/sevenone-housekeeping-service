@@ -1,6 +1,25 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_async_dsn(url: str | None) -> str | None:
+    """Coerce a Postgres URL into the async (asyncpg) form this app needs.
+
+    Accepts the raw connection string Neon/Railway provide
+    (`postgresql://...?sslmode=require&channel_binding=require`) and returns the
+    `postgresql+asyncpg://...` form with query params stripped. SSL is applied
+    via connect_args in app/database.py, and asyncpg rejects libpq query params
+    like `sslmode`/`channel_binding`, so we drop them here.
+    """
+    if url is None:
+        return None
+    url = url.split("?", 1)[0]
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+asyncpg://" + url[len(prefix):]
+    return url
 
 
 class Settings(BaseSettings):
@@ -12,6 +31,10 @@ class Settings(BaseSettings):
 
     database_url: str
     test_database_url: str | None = None
+
+    _normalize_dsn = field_validator("database_url", "test_database_url")(
+        normalize_async_dsn
+    )
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
