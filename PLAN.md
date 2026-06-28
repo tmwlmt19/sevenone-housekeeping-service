@@ -186,13 +186,23 @@ sevenone-housekeeping-service/
 - [x] Configure SQLAlchemy async engine + session management
 - [x] Set up Alembic for migrations (async, URL + metadata wired to app settings)
 
-### Phase 2: Neon database
-- [ ] Create Neon project and database
-- [ ] Configure connection string
+### Phase 2: Neon database ✅
+- [x] Create Neon project and database (`sevenone-housekeeping-db`, project `orange-river-29984576`, Postgres 17)
+- [x] Create separate `test` branch for the test suite
+- [x] Configure connection string (`.env` from `.env.example`; direct non-pooler endpoints, SSL via `connect_args`)
+- [x] Verified async connectivity to both `main` and `test` branches
 
-### Phase 3: Models & migrations
-- [ ] Define all SQLAlchemy models (hotels, users, rooms, tasks)
-- [ ] Generate and run initial Alembic migration
+**Neon reference** (credentials live only in `.env`, which is gitignored):
+- Project: `sevenone-housekeeping-db` — `orange-river-29984576`
+- Branch `main` (prod): `br-delicate-hat-at2trvcz`
+- Branch `test`: `br-dawn-wildflower-at7qi2kp`
+- Note: using **direct** (non-pooler) endpoints to avoid asyncpg + pgbouncer prepared-statement issues; revisit pooling if concurrency grows.
+
+### Phase 3: Models & migrations ✅
+- [x] Define all SQLAlchemy models (hotels, users, rooms, tasks) with shared UUID PK + timestamp mixins
+- [x] Native Postgres enums (`user_role`, `room_status`, `task_status`, `task_priority`) persisting lowercase values
+- [x] Generate initial Alembic migration (`286a7875aaf9`); enum types dropped in downgrade for re-upgrade safety
+- [x] Apply migration to both `main` and `test` branches; verified tables + enum types present
 
 ### Phase 4: Auth
 - [ ] Password hashing utilities
