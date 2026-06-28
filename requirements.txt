@@ -13,4 +13,5 @@ email-validator==2.2.0
 # Dev / test
 pytest==8.3.4
 pytest-asyncio==0.25.0
+pytest-cov==7.1.0
 httpx==0.28.1

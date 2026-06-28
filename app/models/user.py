@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
+    __mapper_args__ = {"eager_defaults": True}
 
     hotel_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

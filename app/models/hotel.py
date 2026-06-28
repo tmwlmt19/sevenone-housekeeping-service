@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 
 class Hotel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "hotels"
+    # Fetch server-side defaults (UUID, timestamps) via RETURNING so attributes
+    # are never left expired — avoids lazy IO under async sessions.
+    __mapper_args__ = {"eager_defaults": True}
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)

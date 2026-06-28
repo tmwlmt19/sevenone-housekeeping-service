@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "tasks"
+    __mapper_args__ = {"eager_defaults": True}
 
     hotel_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

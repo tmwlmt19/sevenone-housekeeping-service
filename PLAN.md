@@ -222,11 +222,12 @@ sevenone-housekeeping-service/
 - [x] All routers tenant-scoped via `require_same_hotel` (404 on cross-tenant)
 - [x] Verified end-to-end against the `test` branch (16/16 smoke checks: CRUD, permissions, isolation, side effects)
 
-### Phase 6: Testing
-- [ ] Test infrastructure (conftest, fixtures, test DB)
-- [ ] Auth tests
-- [ ] CRUD + permissions tests
-- [ ] Tenant isolation tests
+### Phase 6: Testing ✅
+- [x] Test infrastructure (conftest, fixtures, NullPool engine on `test` branch, per-test transaction rollback via savepoint-joining session)
+- [x] Auth tests (login success/failure, /me with valid/missing/bad tokens)
+- [x] CRUD + permissions tests (hotels, users, rooms, tasks; role guards; 409 conflicts; 400 validation; completion side effects)
+- [x] Tenant isolation tests (cross-hotel read/write → 404)
+- [x] **41 tests passing.** Added `eager_defaults=True` to models so server-side defaults are fetched via RETURNING (avoids lazy IO under async / shared-session tests)
 
 ### Phase 7: Deploy
 - [ ] Railway configuration (Procfile or railway.toml)
@@ -329,7 +330,8 @@ Items below are **out of MVP scope** but will be built after validation. Ordered
 
 ### Near-term (post-MVP)
 
-- **Hotel onboarding** — Two paths: (1) manual creation by admin/manager via the API, (2) batch import from a CSV/Excel file of hotel data (rooms, staff). Build an `/api/v1/hotels/{hotel_id}/import` endpoint that accepts a file upload.
+- **Onboarding portal (separate React repo)** — A frontend web app (separate repository) providing a public **sign-up page** and self-service admin flows (add rooms, manage staff, etc.). This replaces `app/seed.py`, which stays only as the initial-admin bootstrap for fresh deployments. The backend will need a public registration endpoint (create hotel + first admin in one call) to support sign-up.
+- **Hotel onboarding (bulk)** — Batch import from a CSV/Excel file of hotel data (rooms, staff) via an `/api/v1/hotels/{hotel_id}/import` endpoint that accepts a file upload.
 - **Task history / audit log** — A `task_events` table recording every status change, assignment change, and edit with `user_id`, `timestamp`, and `old_value → new_value`. Enables "who did what and when" queries.
 - **Room type & subtype** — Replace the simple `room_type` VARCHAR with a structured approach: `type` (standard, suite, deluxe, etc.) and `subtype` attributes (bed count, bed type, bathroom count, etc.). Could be a JSON column or a separate `room_attributes` table depending on query needs.
 - **Bulk operations** — Mark multiple rooms dirty/clean in one call (e.g., after a block of checkouts). Endpoint like `PATCH /api/v1/hotels/{hotel_id}/rooms/bulk-status`.

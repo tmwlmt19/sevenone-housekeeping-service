@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 class Room(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "rooms"
+    __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (
         UniqueConstraint("hotel_id", "room_number", name="uq_room_hotel_number"),
     )
