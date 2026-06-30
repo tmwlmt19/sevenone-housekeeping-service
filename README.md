@@ -6,6 +6,7 @@ FastAPI + async SQLAlchemy + PostgreSQL (Neon).
 ## Documentation
 
 - [Implementation plan](PLAN.md) — architecture, schema, and phased progress
+- [Local development](docs/local-development.md) — run the API locally, env, seeding, dev credentials
 - [Authentication & authorization](docs/auth.md) — password hashing, JWT, roles, tenant isolation
 - [Deployment](docs/deployment.md) — Railway setup, env vars, first-time seeding
 
