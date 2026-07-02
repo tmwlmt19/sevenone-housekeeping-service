@@ -201,3 +201,21 @@ python -m app.seed --email admin@example.com --password <password> \
 
 The script is idempotent on the admin email. After that, admins/managers create
 additional users through the API.
+
+---
+
+## Session cookies (SSO) & deferred refresh tokens
+
+Login sets an **httpOnly session cookie** (`sevenone_session`) in addition to
+returning the bearer token, so the login / hotel / admin web apps share one
+session across subdomains. `get_current_user` reads the cookie first and falls
+back to a bearer header (for tests/tools). `POST /api/v1/auth/logout` clears it.
+
+Prod config (env): set `COOKIE_DOMAIN` to the shared parent domain
+(e.g. `.sevenone.com`), `COOKIE_SECURE=true`, and put all apps + the API under
+that domain so requests are same-site.
+
+**⚠️ DEFERRED — refresh tokens.** The cookie currently holds the 24h access
+token; when it expires the user must log in again. A future pass should add
+short-lived access + rotating refresh tokens (with silent renewal) so sessions
+don't drop abruptly. Tracked here and in `app/config.py`.

@@ -1,16 +1,16 @@
 import uuid
 from collections.abc import Awaitable, Callable
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import decode_access_token
+from app.config import get_settings
 from app.database import get_db
 from app.models.enums import UserRole
 from app.models.user import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+settings = get_settings()
 
 _CREDENTIALS_ERROR = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -19,10 +19,25 @@ _CREDENTIALS_ERROR = HTTPException(
 )
 
 
+def _token_from_request(request: Request) -> str | None:
+    """Prefer the SSO session cookie; fall back to a bearer header (tests/tools)."""
+    cookie = request.cookies.get(settings.session_cookie_name)
+    if cookie:
+        return cookie
+    header = request.headers.get("Authorization")
+    if header and header.lower().startswith("bearer "):
+        return header[7:]
+    return None
+
+
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    token = _token_from_request(request)
+    if token is None:
+        raise _CREDENTIALS_ERROR
+
     claims = decode_access_token(token)
     if claims is None:
         raise _CREDENTIALS_ERROR

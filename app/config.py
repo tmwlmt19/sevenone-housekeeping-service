@@ -40,7 +40,19 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    # Session cookie (used for cross-app SSO). In prod set cookie_domain to the
+    # shared parent domain (e.g. ".sevenone.com") and cookie_secure=true.
+    # TODO: refresh tokens are deferred — today the cookie holds the 24h access
+    # token and the user re-logs in on expiry. See docs/auth.md.
+    session_cookie_name: str = "sevenone_session"
+    cookie_domain: str | None = None
+    cookie_secure: bool = False
+    cookie_samesite: str = "lax"
+
+    cors_origins: str = (
+        "http://localhost:5173,http://localhost:5174,"
+        "http://localhost:5175,http://localhost:3000"
+    )
 
     @property
     def cors_origins_list(self) -> list[str]:

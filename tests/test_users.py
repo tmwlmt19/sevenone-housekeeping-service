@@ -19,7 +19,8 @@ async def test_admin_creates_user(client, admin_user, test_hotel):
     assert "password" not in body and "password_hash" not in body
 
 
-async def test_manager_creates_user(client, manager_user, test_hotel):
+async def test_manager_cannot_create_user(client, manager_user, test_hotel):
+    """Creating users is admin-only; managers may only view staff."""
     r = await client.post(
         f"/api/v1/hotels/{test_hotel.id}/users",
         headers=auth_headers(manager_user),
@@ -30,7 +31,42 @@ async def test_manager_creates_user(client, manager_user, test_hotel):
             "role": "housekeeper",
         },
     )
-    assert r.status_code == 201
+    assert r.status_code == 403
+
+
+async def test_manager_can_list_users(client, manager_user, test_hotel):
+    r = await client.get(
+        f"/api/v1/hotels/{test_hotel.id}/users",
+        headers=auth_headers(manager_user),
+    )
+    assert r.status_code == 200
+
+
+async def test_manager_cannot_delete_user(
+    client, manager_user, housekeeper_user, test_hotel
+):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/users/{housekeeper_user.id}",
+        headers=auth_headers(manager_user),
+    )
+    assert r.status_code == 403
+
+
+async def test_cannot_change_own_role(client, admin_user, test_hotel):
+    r = await client.put(
+        f"/api/v1/hotels/{test_hotel.id}/users/{admin_user.id}",
+        headers=auth_headers(admin_user),
+        json={"role": "housekeeper"},
+    )
+    assert r.status_code == 403
+
+
+async def test_cannot_delete_self(client, admin_user, test_hotel):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/users/{admin_user.id}",
+        headers=auth_headers(admin_user),
+    )
+    assert r.status_code == 403
 
 
 async def test_housekeeper_cannot_create_user(client, housekeeper_user, test_hotel):
