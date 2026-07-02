@@ -104,7 +104,10 @@ async def list_tasks(
     query = select(Task).where(Task.hotel_id == hotel_id)
     if task_status is not None:
         query = query.where(Task.status == task_status)
-    if assigned_to is not None:
+    # Housekeepers may only ever see their own tasks, regardless of the filter.
+    if current_user.role == UserRole.HOUSEKEEPER:
+        query = query.where(Task.assigned_to == current_user.id)
+    elif assigned_to is not None:
         query = query.where(Task.assigned_to == assigned_to)
     query = query.order_by(Task.created_at)
     result = await db.execute(query)
@@ -119,7 +122,16 @@ async def get_task(
     current_user: User = Depends(get_current_user),
 ) -> Task:
     require_same_hotel(hotel_id, current_user)
-    return await _get_task_in_hotel_or_404(db, hotel_id, task_id)
+    task = await _get_task_in_hotel_or_404(db, hotel_id, task_id)
+    # Housekeepers may only read tasks assigned to them.
+    if (
+        current_user.role == UserRole.HOUSEKEEPER
+        and task.assigned_to != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
+    return task
 
 
 @router.put("/{task_id}", response_model=TaskRead)

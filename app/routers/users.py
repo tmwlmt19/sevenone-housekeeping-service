@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import hash_password
 from app.database import get_db
 from app.dependencies import (
-    get_current_user,
+    require_admin,
     require_manager_or_above,
     require_same_hotel,
 )
@@ -45,7 +45,7 @@ async def create_user(
     hotel_id: uuid.UUID,
     payload: UserCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_admin),
 ) -> User:
     require_same_hotel(hotel_id, current_user)
     await _ensure_email_available(db, payload.email)
@@ -81,7 +81,7 @@ async def get_user(
     hotel_id: uuid.UUID,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager_or_above),
 ) -> User:
     require_same_hotel(hotel_id, current_user)
     return await _get_user_in_hotel_or_404(db, hotel_id, user_id)
@@ -93,12 +93,22 @@ async def update_user(
     user_id: uuid.UUID,
     payload: UserUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_admin),
 ) -> User:
     require_same_hotel(hotel_id, current_user)
     user = await _get_user_in_hotel_or_404(db, hotel_id, user_id)
 
     data = payload.model_dump(exclude_unset=True)
+    # Nobody may change their own role (prevents self-demotion / lockout).
+    if (
+        user_id == current_user.id
+        and data.get("role") is not None
+        and data["role"] != user.role
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot change your own role",
+        )
     if "email" in data:
         await _ensure_email_available(db, data["email"], exclude_user_id=user_id)
     if "password" in data:
@@ -116,9 +126,14 @@ async def delete_user(
     hotel_id: uuid.UUID,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_admin),
 ) -> None:
     require_same_hotel(hotel_id, current_user)
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot delete your own account",
+        )
     user = await _get_user_in_hotel_or_404(db, hotel_id, user_id)
     await db.delete(user)
     await db.commit()

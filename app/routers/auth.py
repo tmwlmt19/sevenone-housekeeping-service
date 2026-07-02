@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import create_access_token, verify_password
+from app.auth import create_access_token, hash_password, verify_password
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.auth import LoginRequest, Token
+from app.schemas.auth import LoginRequest, PasswordChange, Token
 from app.schemas.user import UserRead
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -41,3 +41,19 @@ async def read_current_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
     return current_user
+
+
+@router.put("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_my_password(
+    payload: PasswordChange,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Let the authenticated user change their own password."""
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    current_user.password_hash = hash_password(payload.new_password)
+    await db.commit()
