@@ -3,6 +3,18 @@
 Backend API for a multi-tenant hotel housekeeping SaaS platform.
 FastAPI + async SQLAlchemy + PostgreSQL (Neon).
 
+Serves three frontends via cookie-based SSO:
+
+- `sevenone-housekeeping-login` — shared login app (sets the session cookie)
+- `sevenone-housekeeping-web` — hotel operations app (managers + housekeepers)
+- `sevenone-housekeeping-admin` — platform/owner console (cross-tenant admins)
+
+**Roles:** admin = platform owner (cross-tenant); manager/housekeeper = hotel
+employees (tenant-scoped). **Auth:** login sets an httpOnly session cookie
+(`/auth/login`), cleared by `/auth/logout`; `get_current_user` reads the cookie
+(bearer fallback for tests). See [docs/auth.md](docs/auth.md). Whole-system status
+lives in the web repo's `docs/status.md`.
+
 ## Documentation
 
 - [Implementation plan](PLAN.md) — architecture, schema, and phased progress
