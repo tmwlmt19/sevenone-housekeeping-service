@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -23,6 +24,16 @@ async def _get_hotel_or_404(db: AsyncSession, hotel_id: uuid.UUID) -> Hotel:
             status_code=status.HTTP_404_NOT_FOUND, detail="Hotel not found"
         )
     return hotel
+
+
+@router.get("", response_model=list[HotelRead])
+async def list_hotels(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> list[Hotel]:
+    """List all hotels. Platform-level action, admin only (owner console)."""
+    result = await db.execute(select(Hotel).order_by(Hotel.name))
+    return list(result.scalars().all())
 
 
 @router.post("", response_model=HotelRead, status_code=status.HTTP_201_CREATED)

@@ -61,11 +61,13 @@ require_manager_or_above = require_roles(UserRole.ADMIN, UserRole.MANAGER)
 
 
 def require_same_hotel(hotel_id: uuid.UUID, current_user: User) -> None:
-    """Enforce tenant isolation: the user may only act within their own hotel.
+    """Enforce tenant isolation: a user may only act within their own hotel.
 
-    Admins are also scoped to their hotel in the MVP (single-hotel admins);
-    cross-hotel platform administration is out of scope for now.
+    Admins are platform-level (the owner console) and are NOT hotel-scoped —
+    they may act across all hotels.
     """
+    if current_user.role == UserRole.ADMIN:
+        return
     if current_user.hotel_id != hotel_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
