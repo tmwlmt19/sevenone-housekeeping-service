@@ -12,15 +12,15 @@ Serves three frontends via cookie-based SSO:
 **Roles:** admin = platform owner (cross-tenant); manager/housekeeper = hotel
 employees (tenant-scoped). **Auth:** login sets an httpOnly session cookie
 (`/auth/login`), cleared by `/auth/logout`; `get_current_user` reads the cookie
-(bearer fallback for tests). See [docs/auth.md](docs/auth.md). Whole-system status
-lives in the web repo's `docs/status.md`.
+(bearer fallback for tests). See [docs/auth.md](https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/backend/auth.md). Whole-system status
+lives in [https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/status.md](https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/status.md).
 
 ## Documentation
 
-- [Implementation plan](PLAN.md) — architecture, schema, and phased progress
-- [Local development](docs/local-development.md) — run the API locally, env, seeding, dev credentials
-- [Authentication & authorization](docs/auth.md) — password hashing, JWT, roles, tenant isolation
-- [Deployment](docs/deployment.md) — Railway setup, env vars, first-time seeding
+- [Implementation plan](https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/backend/plan.md) — architecture, schema, and phased progress
+- [Local development](https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/backend/local-development.md) — run the API locally, env, seeding, dev credentials
+- [Authentication & authorization](https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/backend/auth.md) — password hashing, JWT, roles, tenant isolation
+- [Deployment](https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/backend/deployment.md) — Railway setup, env vars, first-time seeding
 
 ## Development
 
@@ -45,4 +45,4 @@ cp .env.example .env   # then fill in DATABASE_URL / TEST_DATABASE_URL / JWT_SEC
 ```
 
 Tests run against the Neon `test` branch with per-test transaction rollback, so
-they never persist data. See [PLAN.md](PLAN.md) §7 for the testing strategy.
+they never persist data. See [PLAN.md](https://github.com/tmwlmt19/sevenone-docs/blob/main/housekeeping/backend/plan.md) §7 for the testing strategy.
