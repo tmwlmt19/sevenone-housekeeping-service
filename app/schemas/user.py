@@ -1,9 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import UserRole
+
+# Allowed UI-preference values. Kept here (not a DB enum) so adding a language
+# or theme is a one-line change with no migration.
+Theme = Literal["light", "dark", "system"]
+Language = Literal["en", "es"]
 
 
 class UserCreate(BaseModel):
@@ -20,6 +26,13 @@ class UserUpdate(BaseModel):
     role: UserRole | None = None
 
 
+class PreferencesUpdate(BaseModel):
+    """Partial update of the current user's UI preferences."""
+
+    theme: Theme | None = None
+    preferred_language: Language | None = None
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -29,5 +42,7 @@ class UserRead(BaseModel):
     name: str
     role: UserRole
     must_change_password: bool
+    theme: Theme
+    preferred_language: Language
     created_at: datetime
     updated_at: datetime

@@ -8,7 +8,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.auth import LoginRequest, PasswordChange, Token
-from app.schemas.user import UserRead
+from app.schemas.user import PreferencesUpdate, UserRead
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -73,6 +73,21 @@ async def logout(response: Response) -> None:
 async def read_current_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
+    return current_user
+
+
+@router.patch("/me/preferences", response_model=UserRead)
+async def update_my_preferences(
+    payload: PreferencesUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Update the authenticated user's own UI preferences (theme, language)."""
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(current_user, field, value)
+    await db.commit()
+    await db.refresh(current_user)
     return current_user
 
 

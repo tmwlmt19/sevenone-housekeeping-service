@@ -39,6 +39,17 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     must_change_password: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false", default=False
     )
+    # UI preferences, persisted per-user so they follow the person across
+    # devices. `theme` is one of light/dark/system; `preferred_language` is an
+    # ISO-639-1 code (currently 'en' or 'es'). Values are validated at the API
+    # edge (see app/schemas/user.py); stored as plain strings for easy
+    # extensibility (new languages/themes need no migration).
+    theme: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default="system", default="system"
+    )
+    preferred_language: Mapped[str] = mapped_column(
+        String(5), nullable=False, server_default="en", default="en"
+    )
 
     hotel: Mapped["Hotel"] = relationship(back_populates="users")
     assigned_tasks: Mapped[list["Task"]] = relationship(
