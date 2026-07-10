@@ -12,9 +12,14 @@ from app.dependencies import (
     require_same_hotel,
 )
 from app.models.user import User
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.schemas.user import UserRead, UserUpdate
 
 router = APIRouter(prefix="/api/v1/hotels/{hotel_id}/users", tags=["users"])
+
+# Staff create/delete is not exposed here: platform admins no longer add or
+# remove staff directly. Those actions happen only when an admin approves a
+# manager's request — see app/routers/access_requests.py. Editing an existing
+# user (below) and bulk provisioning (hotels.py) remain admin-direct.
 
 
 async def _get_user_in_hotel_or_404(
@@ -38,32 +43,6 @@ async def _ensure_email_available(
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with this email already exists",
         )
-
-
-@router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    hotel_id: uuid.UUID,
-    payload: UserCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
-) -> User:
-    require_same_hotel(hotel_id, current_user)
-    await _ensure_email_available(db, payload.email)
-
-    user = User(
-        hotel_id=hotel_id,
-        email=payload.email,
-        password_hash=hash_password(payload.password),
-        name=payload.name,
-        role=payload.role,
-        # New accounts start with an admin-set password; require a change on
-        # first login so the user picks their own.
-        must_change_password=True,
-    )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    return user
 
 
 @router.get("", response_model=list[UserRead])
@@ -122,21 +101,3 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     return user
-
-
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(
-    hotel_id: uuid.UUID,
-    user_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
-) -> None:
-    require_same_hotel(hotel_id, current_user)
-    if user_id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot delete your own account",
-        )
-    user = await _get_user_in_hotel_or_404(db, hotel_id, user_id)
-    await db.delete(user)
-    await db.commit()

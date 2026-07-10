@@ -1,5 +1,9 @@
 from conftest import auth_headers
 
+from app.auth import hash_password
+from app.models.enums import UserRole
+from app.models.user import User
+
 
 async def test_login_success(client, admin_user):
     r = await client.post(
@@ -36,20 +40,19 @@ async def test_me_with_valid_token(client, admin_user):
 
 
 async def test_change_password_clears_must_change_flag(
-    client, admin_user, test_hotel
+    client, db_session, test_hotel
 ):
-    # A freshly created account has the forced-change flag set.
-    created = await client.post(
-        f"/api/v1/hotels/{test_hotel.id}/users",
-        headers=auth_headers(admin_user),
-        json={
-            "email": "firstlogin@test.com",
-            "password": "temppass123",
-            "name": "First Login",
-            "role": "housekeeper",
-        },
+    # A provisioned/approved account starts with the forced-change flag set.
+    user = User(
+        hotel_id=test_hotel.id,
+        email="firstlogin@test.com",
+        password_hash=hash_password("temppass123"),
+        name="First Login",
+        role=UserRole.HOUSEKEEPER,
+        must_change_password=True,
     )
-    assert created.json()["must_change_password"] is True
+    db_session.add(user)
+    await db_session.flush()
 
     login = await client.post(
         "/api/v1/auth/login",

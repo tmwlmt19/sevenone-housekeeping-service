@@ -1,47 +1,30 @@
+import uuid
+
 from conftest import auth_headers
 
+# Room create/delete is no longer exposed directly — admins add/remove rooms
+# only by approving a manager's access request (see test_access_requests.py).
+# These tests cover what remains: list / get, the manager status-only PATCH,
+# the admin full-edit PUT, and a guard that the old create/delete routes are gone.
 
-async def test_admin_creates_room(client, admin_user, test_hotel):
+
+async def test_direct_create_route_removed(client, admin_user, test_hotel):
     r = await client.post(
         f"/api/v1/hotels/{test_hotel.id}/rooms",
         headers=auth_headers(admin_user),
         json={"room_number": "201", "floor": 2, "room_type": "ste"},
     )
-    assert r.status_code == 201
-    body = r.json()
-    assert body["room_number"] == "201"
-    assert body["room_type"] == "STE"  # normalized to uppercase
-    assert body["status"] == "clean"  # default
+    assert r.status_code == 405
 
 
-async def test_manager_cannot_create_room(client, manager_user, test_hotel):
-    # Add/rename/delete of rooms is reserved for platform admins.
-    r = await client.post(
-        f"/api/v1/hotels/{test_hotel.id}/rooms",
-        headers=auth_headers(manager_user),
-        json={"room_number": "201"},
-    )
-    assert r.status_code == 403
-
-
-async def test_housekeeper_cannot_create_room(client, housekeeper_user, test_hotel):
-    r = await client.post(
-        f"/api/v1/hotels/{test_hotel.id}/rooms",
-        headers=auth_headers(housekeeper_user),
-        json={"room_number": "202"},
-    )
-    assert r.status_code == 403
-
-
-async def test_duplicate_room_number_conflict(
+async def test_direct_delete_route_removed(
     client, admin_user, test_hotel, test_room
 ):
-    r = await client.post(
-        f"/api/v1/hotels/{test_hotel.id}/rooms",
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
         headers=auth_headers(admin_user),
-        json={"room_number": "101"},  # test_room already uses 101
     )
-    assert r.status_code == 409
+    assert r.status_code == 405
 
 
 async def test_list_and_get_room(client, housekeeper_user, test_hotel, test_room):
@@ -105,27 +88,7 @@ async def test_admin_full_update_room(client, admin_user, test_hotel, test_room)
     assert r.json()["room_number"] == "999"
 
 
-async def test_manager_cannot_delete_room(
-    client, manager_user, test_hotel, test_room
-):
-    r = await client.delete(
-        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
-        headers=auth_headers(manager_user),
-    )
-    assert r.status_code == 403
-
-
-async def test_admin_deletes_room(client, admin_user, test_hotel, test_room):
-    r = await client.delete(
-        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
-        headers=auth_headers(admin_user),
-    )
-    assert r.status_code == 204
-
-
 async def test_get_missing_room_404(client, manager_user, test_hotel):
-    import uuid
-
     r = await client.get(
         f"/api/v1/hotels/{test_hotel.id}/rooms/{uuid.uuid4()}",
         headers=auth_headers(manager_user),

@@ -37,3 +37,21 @@ class TaskPriority(str, enum.Enum):
     LOW = "low"
     NORMAL = "normal"
     URGENT = "urgent"
+
+
+class RequestResource(str, enum.Enum):
+    """What an access request operates on."""
+
+    STAFF = "staff"
+    ROOM = "room"
+
+
+class RequestKind(str, enum.Enum):
+    ADD = "add"
+    REMOVE = "remove"
+
+
+class RequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"

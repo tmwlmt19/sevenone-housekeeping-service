@@ -1,7 +1,12 @@
 from conftest import auth_headers
 
+# Staff create/delete is no longer exposed directly — admins add/remove staff
+# only by approving a manager's access request (see test_access_requests.py).
+# These tests cover what remains here: list / get / edit, plus a guard that the
+# old direct create/delete routes are gone.
 
-async def test_admin_creates_user(client, admin_user, test_hotel):
+
+async def test_direct_create_route_removed(client, admin_user, test_hotel):
     r = await client.post(
         f"/api/v1/hotels/{test_hotel.id}/users",
         headers=auth_headers(admin_user),
@@ -12,28 +17,18 @@ async def test_admin_creates_user(client, admin_user, test_hotel):
             "role": "housekeeper",
         },
     )
-    assert r.status_code == 201
-    body = r.json()
-    assert body["email"] == "new@test.com"
-    assert body["role"] == "housekeeper"
-    assert "password" not in body and "password_hash" not in body
-    # New accounts must set their own password on first login.
-    assert body["must_change_password"] is True
+    # Route only supports GET now; POST is not allowed.
+    assert r.status_code == 405
 
 
-async def test_manager_cannot_create_user(client, manager_user, test_hotel):
-    """Creating users is admin-only; managers may only view staff."""
-    r = await client.post(
-        f"/api/v1/hotels/{test_hotel.id}/users",
-        headers=auth_headers(manager_user),
-        json={
-            "email": "m-created@test.com",
-            "password": "password123",
-            "name": "Created",
-            "role": "housekeeper",
-        },
+async def test_direct_delete_route_removed(
+    client, admin_user, housekeeper_user, test_hotel
+):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/users/{housekeeper_user.id}",
+        headers=auth_headers(admin_user),
     )
-    assert r.status_code == 403
+    assert r.status_code == 405
 
 
 async def test_manager_can_list_users(client, manager_user, test_hotel):
@@ -44,16 +39,6 @@ async def test_manager_can_list_users(client, manager_user, test_hotel):
     assert r.status_code == 200
 
 
-async def test_manager_cannot_delete_user(
-    client, manager_user, housekeeper_user, test_hotel
-):
-    r = await client.delete(
-        f"/api/v1/hotels/{test_hotel.id}/users/{housekeeper_user.id}",
-        headers=auth_headers(manager_user),
-    )
-    assert r.status_code == 403
-
-
 async def test_cannot_change_own_role(client, admin_user, test_hotel):
     r = await client.put(
         f"/api/v1/hotels/{test_hotel.id}/users/{admin_user.id}",
@@ -61,42 +46,6 @@ async def test_cannot_change_own_role(client, admin_user, test_hotel):
         json={"role": "housekeeper"},
     )
     assert r.status_code == 403
-
-
-async def test_cannot_delete_self(client, admin_user, test_hotel):
-    r = await client.delete(
-        f"/api/v1/hotels/{test_hotel.id}/users/{admin_user.id}",
-        headers=auth_headers(admin_user),
-    )
-    assert r.status_code == 403
-
-
-async def test_housekeeper_cannot_create_user(client, housekeeper_user, test_hotel):
-    r = await client.post(
-        f"/api/v1/hotels/{test_hotel.id}/users",
-        headers=auth_headers(housekeeper_user),
-        json={
-            "email": "x@test.com",
-            "password": "password123",
-            "name": "X",
-            "role": "housekeeper",
-        },
-    )
-    assert r.status_code == 403
-
-
-async def test_duplicate_email_conflict(client, admin_user, test_hotel):
-    r = await client.post(
-        f"/api/v1/hotels/{test_hotel.id}/users",
-        headers=auth_headers(admin_user),
-        json={
-            "email": "admin@test.com",  # already exists (admin_user)
-            "password": "password123",
-            "name": "Dup",
-            "role": "manager",
-        },
-    )
-    assert r.status_code == 409
 
 
 async def test_list_users(client, admin_user, manager_user, test_hotel):
@@ -145,14 +94,13 @@ async def test_update_user_password_allows_relogin(
     assert login.status_code == 200
 
 
-async def test_delete_user(client, admin_user, housekeeper_user, test_hotel):
-    r = await client.delete(
+async def test_manager_cannot_update_user(
+    client, manager_user, housekeeper_user, test_hotel
+):
+    """Editing staff is still admin-only."""
+    r = await client.put(
         f"/api/v1/hotels/{test_hotel.id}/users/{housekeeper_user.id}",
-        headers=auth_headers(admin_user),
+        headers=auth_headers(manager_user),
+        json={"name": "Nope"},
     )
-    assert r.status_code == 204
-    follow = await client.get(
-        f"/api/v1/hotels/{test_hotel.id}/users/{housekeeper_user.id}",
-        headers=auth_headers(admin_user),
-    )
-    assert follow.status_code == 404
+    assert r.status_code == 403

@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -27,6 +28,13 @@ def verify_password(password: str, password_hash: str) -> bool:
     except ValueError:
         # Malformed/invalid hash stored in the DB.
         return False
+
+
+def generate_temp_password() -> str:
+    """A random temporary password (e.g. for a newly provisioned or admin-added
+    user). Readable enough to communicate, but not guessable. The recipient must
+    change it on first login."""
+    return "Sev-" + secrets.token_urlsafe(9)
 
 
 def create_access_token(

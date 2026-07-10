@@ -1,11 +1,10 @@
-import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import hash_password
+from app.auth import generate_temp_password, hash_password
 from app.database import get_db
 from app.dependencies import (
     get_current_user,
@@ -23,12 +22,6 @@ from app.schemas.provision import (
 from app.schemas.user import UserRead
 
 router = APIRouter(prefix="/api/v1/hotels", tags=["hotels"])
-
-
-def _generate_temp_password() -> str:
-    """A random shared temporary password for a provisioning batch. Readable
-    enough to communicate, but not guessable. Users must change it on first login."""
-    return "Sev-" + secrets.token_urlsafe(9)
 
 
 async def _get_hotel_or_404(db: AsyncSession, hotel_id: uuid.UUID) -> Hotel:
@@ -156,7 +149,7 @@ async def provision_hotel(
     for room in payload.rooms:
         db.add(Room(hotel_id=hotel.id, **room.model_dump()))
 
-    temp_password = _generate_temp_password()
+    temp_password = generate_temp_password()
     temp_hash = hash_password(temp_password)
     created_users = [
         User(
