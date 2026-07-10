@@ -33,6 +33,13 @@ class RoomUpdate(BaseModel):
     _norm_type = field_validator("room_type")(_normalize_room_type)
 
 
+class RoomStatusUpdate(BaseModel):
+    """Status-only update. Managers may change a room's status without the
+    full-edit (add/rename/delete) rights reserved for platform admins."""
+
+    status: RoomStatus
+
+
 class RoomRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,10 +1,10 @@
 from conftest import auth_headers
 
 
-async def test_manager_creates_room(client, manager_user, test_hotel):
+async def test_admin_creates_room(client, admin_user, test_hotel):
     r = await client.post(
         f"/api/v1/hotels/{test_hotel.id}/rooms",
-        headers=auth_headers(manager_user),
+        headers=auth_headers(admin_user),
         json={"room_number": "201", "floor": 2, "room_type": "ste"},
     )
     assert r.status_code == 201
@@ -12,6 +12,16 @@ async def test_manager_creates_room(client, manager_user, test_hotel):
     assert body["room_number"] == "201"
     assert body["room_type"] == "STE"  # normalized to uppercase
     assert body["status"] == "clean"  # default
+
+
+async def test_manager_cannot_create_room(client, manager_user, test_hotel):
+    # Add/rename/delete of rooms is reserved for platform admins.
+    r = await client.post(
+        f"/api/v1/hotels/{test_hotel.id}/rooms",
+        headers=auth_headers(manager_user),
+        json={"room_number": "201"},
+    )
+    assert r.status_code == 403
 
 
 async def test_housekeeper_cannot_create_room(client, housekeeper_user, test_hotel):
@@ -24,11 +34,11 @@ async def test_housekeeper_cannot_create_room(client, housekeeper_user, test_hot
 
 
 async def test_duplicate_room_number_conflict(
-    client, manager_user, test_hotel, test_room
+    client, admin_user, test_hotel, test_room
 ):
     r = await client.post(
         f"/api/v1/hotels/{test_hotel.id}/rooms",
-        headers=auth_headers(manager_user),
+        headers=auth_headers(admin_user),
         json={"room_number": "101"},  # test_room already uses 101
     )
     assert r.status_code == 409
@@ -50,9 +60,11 @@ async def test_list_and_get_room(client, housekeeper_user, test_hotel, test_room
     assert one.json()["id"] == str(test_room.id)
 
 
-async def test_update_room_status(client, manager_user, test_hotel, test_room):
-    r = await client.put(
-        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
+async def test_manager_updates_status_via_patch(
+    client, manager_user, test_hotel, test_room
+):
+    r = await client.patch(
+        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}/status",
         headers=auth_headers(manager_user),
         json={"status": "out_of_service"},
     )
@@ -60,10 +72,53 @@ async def test_update_room_status(client, manager_user, test_hotel, test_room):
     assert r.json()["status"] == "out_of_service"
 
 
-async def test_delete_room(client, manager_user, test_hotel, test_room):
+async def test_housekeeper_cannot_update_status(
+    client, housekeeper_user, test_hotel, test_room
+):
+    r = await client.patch(
+        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}/status",
+        headers=auth_headers(housekeeper_user),
+        json={"status": "clean"},
+    )
+    assert r.status_code == 403
+
+
+async def test_manager_cannot_full_update_room(
+    client, manager_user, test_hotel, test_room
+):
+    # The full-edit PUT (rename/floor/type) is admin-only.
+    r = await client.put(
+        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
+        headers=auth_headers(manager_user),
+        json={"room_number": "999"},
+    )
+    assert r.status_code == 403
+
+
+async def test_admin_full_update_room(client, admin_user, test_hotel, test_room):
+    r = await client.put(
+        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
+        headers=auth_headers(admin_user),
+        json={"room_number": "999", "status": "out_of_service"},
+    )
+    assert r.status_code == 200
+    assert r.json()["room_number"] == "999"
+
+
+async def test_manager_cannot_delete_room(
+    client, manager_user, test_hotel, test_room
+):
     r = await client.delete(
         f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
         headers=auth_headers(manager_user),
+    )
+    assert r.status_code == 403
+
+
+async def test_admin_deletes_room(client, admin_user, test_hotel, test_room):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/rooms/{test_room.id}",
+        headers=auth_headers(admin_user),
     )
     assert r.status_code == 204
 

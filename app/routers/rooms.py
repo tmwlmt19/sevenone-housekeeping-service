@@ -7,12 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import (
     get_current_user,
+    require_admin,
     require_manager_or_above,
     require_same_hotel,
 )
 from app.models.room import Room
 from app.models.user import User
-from app.schemas.room import RoomCreate, RoomRead, RoomUpdate
+from app.schemas.room import (
+    RoomCreate,
+    RoomRead,
+    RoomStatusUpdate,
+    RoomUpdate,
+)
 
 router = APIRouter(prefix="/api/v1/hotels/{hotel_id}/rooms", tags=["rooms"])
 
@@ -53,7 +59,7 @@ async def create_room(
     hotel_id: uuid.UUID,
     payload: RoomCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_admin),
 ) -> Room:
     require_same_hotel(hotel_id, current_user)
     await _ensure_room_number_available(db, hotel_id, payload.room_number)
@@ -97,7 +103,7 @@ async def update_room(
     room_id: uuid.UUID,
     payload: RoomUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_admin),
 ) -> Room:
     require_same_hotel(hotel_id, current_user)
     room = await _get_room_in_hotel_or_404(db, hotel_id, room_id)
@@ -115,12 +121,30 @@ async def update_room(
     return room
 
 
+@router.patch("/{room_id}/status", response_model=RoomRead)
+async def update_room_status(
+    hotel_id: uuid.UUID,
+    room_id: uuid.UUID,
+    payload: RoomStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_manager_or_above),
+) -> Room:
+    """Change only a room's status. Available to managers and admins; the
+    full add/rename/delete lifecycle is reserved for platform admins."""
+    require_same_hotel(hotel_id, current_user)
+    room = await _get_room_in_hotel_or_404(db, hotel_id, room_id)
+    room.status = payload.status
+    await db.commit()
+    await db.refresh(room)
+    return room
+
+
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_room(
     hotel_id: uuid.UUID,
     room_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_admin),
 ) -> None:
     require_same_hotel(hotel_id, current_user)
     room = await _get_room_in_hotel_or_404(db, hotel_id, room_id)

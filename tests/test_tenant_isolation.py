@@ -31,13 +31,16 @@ async def test_cannot_list_other_hotel_rooms(client, manager_user, other_hotel):
     assert r.status_code == 404
 
 
-async def test_cannot_create_room_in_other_hotel(
+async def test_cannot_change_room_status_in_other_hotel(
     client, manager_user, other_hotel
 ):
-    r = await client.post(
-        f"/api/v1/hotels/{other_hotel.id}/rooms",
+    # Tenant isolation is checked before the room lookup, so a stray id is fine.
+    import uuid
+
+    r = await client.patch(
+        f"/api/v1/hotels/{other_hotel.id}/rooms/{uuid.uuid4()}/status",
         headers=auth_headers(manager_user),
-        json={"room_number": "999"},
+        json={"status": "clean"},
     )
     assert r.status_code == 404
 
