@@ -159,6 +159,21 @@ async def test_task(
 
 
 @pytest_asyncio.fixture
+async def service_admin(db_session: AsyncSession) -> User:
+    """A platform admin that belongs to no hotel (hotel_id is NULL)."""
+    user = User(
+        hotel_id=None,
+        email="service-admin@test.com",
+        password_hash=hash_password("password123"),
+        name="Service Admin",
+        role=UserRole.ADMIN,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+@pytest_asyncio.fixture
 async def other_hotel(db_session: AsyncSession) -> Hotel:
     """A second tenant, for cross-hotel isolation tests."""
     return await _make_hotel(db_session, "Other Hotel")

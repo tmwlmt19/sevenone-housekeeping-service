@@ -18,10 +18,12 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
     __mapper_args__ = {"eager_defaults": True}
 
-    hotel_id: Mapped[uuid.UUID] = mapped_column(
+    # Nullable: platform/service admins are cross-tenant and belong to no hotel.
+    # Hotel staff (manager/housekeeper) always have one.
+    hotel_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("hotels.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     email: Mapped[str] = mapped_column(

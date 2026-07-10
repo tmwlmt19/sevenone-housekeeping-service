@@ -1,6 +1,11 @@
-"""Seed an initial hotel + admin user.
+"""Seed an initial service admin user.
 
 Usage:
+    # Hotel-independent platform admin (recommended):
+    python -m app.seed --email admin@example.com --password secret \\
+        --name "Site Admin"
+
+    # Optionally also create a hotel and attach the admin to it (legacy):
     python -m app.seed --email admin@example.com --password secret \\
         --name "Site Admin" --hotel-name "Demo Hotel"
 
@@ -20,7 +25,7 @@ from app.models.user import User
 
 
 async def seed_admin(
-    *, email: str, password: str, name: str, hotel_name: str
+    *, email: str, password: str, name: str, hotel_name: str | None
 ) -> None:
     async with AsyncSessionLocal() as db:
         existing = await db.execute(select(User).where(User.email == email))
@@ -28,12 +33,16 @@ async def seed_admin(
             print(f"User {email!r} already exists — nothing to do.")
             return
 
-        hotel = Hotel(name=hotel_name)
-        db.add(hotel)
-        await db.flush()  # assign hotel.id
+        # Platform admins are cross-tenant and belong to no hotel by default.
+        hotel_id = None
+        if hotel_name:
+            hotel = Hotel(name=hotel_name)
+            db.add(hotel)
+            await db.flush()  # assign hotel.id
+            hotel_id = hotel.id
 
         admin = User(
-            hotel_id=hotel.id,
+            hotel_id=hotel_id,
             email=email,
             password_hash=hash_password(password),
             name=name,
@@ -41,7 +50,8 @@ async def seed_admin(
         )
         db.add(admin)
         await db.commit()
-        print(f"Created hotel {hotel_name!r} and admin {email!r}.")
+        where = f" attached to hotel {hotel_name!r}" if hotel_name else ""
+        print(f"Created service admin {email!r}{where}.")
 
 
 def main() -> None:
@@ -49,7 +59,12 @@ def main() -> None:
     parser.add_argument("--email", required=True)
     parser.add_argument("--password", required=True)
     parser.add_argument("--name", default="Site Admin")
-    parser.add_argument("--hotel-name", default="Demo Hotel")
+    parser.add_argument(
+        "--hotel-name",
+        default=None,
+        help="Optionally create and attach a hotel (legacy). "
+        "Omit for a hotel-independent service admin.",
+    )
     args = parser.parse_args()
 
     asyncio.run(

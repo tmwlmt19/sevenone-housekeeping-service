@@ -24,7 +24,7 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    hotel_id: uuid.UUID
+    hotel_id: uuid.UUID | None
     email: EmailStr
     name: str
     role: UserRole

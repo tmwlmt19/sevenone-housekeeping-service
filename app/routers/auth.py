@@ -48,7 +48,11 @@ async def login(
 
     token = create_access_token(
         subject=str(user.id),
-        extra_claims={"hotel_id": str(user.hotel_id), "role": user.role.value},
+        extra_claims={
+            # Service admins have no hotel; keep the claim null rather than "None".
+            "hotel_id": str(user.hotel_id) if user.hotel_id else None,
+            "role": user.role.value,
+        },
     )
     # Set the SSO session cookie (shared across the login/hotel/admin apps) and
     # also return the token for API clients / tests using bearer auth.
