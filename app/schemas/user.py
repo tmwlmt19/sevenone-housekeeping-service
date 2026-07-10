@@ -28,5 +28,6 @@ class UserRead(BaseModel):
     email: EmailStr
     name: str
     role: UserRole
+    must_change_password: bool
     created_at: datetime
     updated_at: datetime

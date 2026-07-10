@@ -17,6 +17,8 @@ async def test_admin_creates_user(client, admin_user, test_hotel):
     assert body["email"] == "new@test.com"
     assert body["role"] == "housekeeper"
     assert "password" not in body and "password_hash" not in body
+    # New accounts must set their own password on first login.
+    assert body["must_change_password"] is True
 
 
 async def test_manager_cannot_create_user(client, manager_user, test_hotel):

@@ -56,6 +56,9 @@ async def create_user(
         password_hash=hash_password(payload.password),
         name=payload.name,
         role=payload.role,
+        # New accounts start with an admin-set password; require a change on
+        # first login so the user picks their own.
+        must_change_password=True,
     )
     db.add(user)
     await db.commit()

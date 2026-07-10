@@ -85,4 +85,6 @@ async def change_my_password(
             detail="Current password is incorrect",
         )
     current_user.password_hash = hash_password(payload.new_password)
+    # The user has now chosen their own password; clear any forced-change flag.
+    current_user.must_change_password = False
     await db.commit()
