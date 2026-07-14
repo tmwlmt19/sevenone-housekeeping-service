@@ -9,6 +9,7 @@ python-jose[cryptography]==3.3.0
 bcrypt==5.0.0
 python-multipart==0.0.20
 email-validator==2.2.0
+resend==2.4.0
 
 # Dev / test
 pytest==8.3.4

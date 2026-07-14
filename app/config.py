@@ -54,6 +54,19 @@ class Settings(BaseSettings):
         "http://localhost:5175,http://localhost:3000"
     )
 
+    # Email / password reset. When resend_api_key is unset, sends are a no-op
+    # that just logs (dev/test); set it in prod to actually deliver mail. See
+    # docs/forgot-password (backlog: self-service forgot-password).
+    resend_api_key: str | None = None
+    email_from: str = "SevenOne <no-reply@send.sevenone.com>"
+    # Login-app route that renders the reset form; the raw token is appended as
+    # ?token=... . Prod: https://login.sevenone.com/reset-password
+    password_reset_url_base: str = "http://localhost:5174/reset-password"
+    password_reset_token_ttl_minutes: int = 30
+    # Per-user throttle: refuse to mint a new reset token if one was created for
+    # that user within this window.
+    password_reset_min_interval_seconds: int = 60
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
