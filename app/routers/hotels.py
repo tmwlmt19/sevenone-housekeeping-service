@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import generate_temp_password, hash_password
 from app.database import get_db
 from app.dependencies import (
-    get_current_user,
     require_admin,
+    require_manager_or_above,
     require_same_hotel,
 )
 from app.models.hotel import Hotel
@@ -182,8 +182,10 @@ async def provision_hotel(
 async def get_hotel(
     hotel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager_or_above),
 ) -> Hotel:
+    """View a hotel's profile. Manager+ only — housekeepers have no feature that
+    needs it. Managers are scoped to their own hotel; admins are cross-tenant."""
     require_same_hotel(hotel_id, current_user)
     return await _get_hotel_or_404(db, hotel_id)
 
