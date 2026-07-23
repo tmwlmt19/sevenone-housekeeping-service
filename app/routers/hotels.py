@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import generate_temp_password, hash_password
 from app.database import get_db
+from app.email import send_welcome_email_best_effort
 from app.dependencies import (
     require_admin,
     require_manager_or_above,
@@ -174,6 +175,13 @@ async def provision_hotel(
     await db.refresh(hotel)
     for user in created_users:
         await db.refresh(user)
+
+    # Email each new user their shared temp password + sign-in link. Best-effort:
+    # the accounts are already committed, so a mail failure must not fail the call.
+    for user in created_users:
+        await send_welcome_email_best_effort(
+            to=user.email, name=user.name, temp_password=temp_password
+        )
 
     return HotelProvisionResponse(
         hotel=HotelRead.model_validate(hotel),

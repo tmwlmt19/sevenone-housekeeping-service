@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import generate_temp_password, hash_password
 from app.database import get_db
+from app.email import send_welcome_email_best_effort
 from app.dependencies import (
     require_admin,
-    require_manager_or_above,
+    require_requester,
     require_same_hotel,
 )
 from app.models.access_request import AccessRequest
@@ -78,7 +79,7 @@ async def file_access_request(
     hotel_id: uuid.UUID,
     payload: AccessRequestCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_requester),
 ) -> AccessRequest:
     """A manager asks a platform admin to add or remove a staff member or room.
     The request is only validated here; nothing is created/deleted until an
@@ -141,7 +142,7 @@ async def list_hotel_access_requests(
     hotel_id: uuid.UUID,
     status_filter: RequestStatus | None = Query(default=None, alias="status"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_manager_or_above),
+    current_user: User = Depends(require_requester),
 ) -> list[AccessRequest]:
     """A manager sees their own hotel's requests (to track pending/decided)."""
     require_same_hotel(hotel_id, current_user)
@@ -198,6 +199,9 @@ async def approve_access_request(
         )
 
     temp_password: str | None = None
+    # Set when this approval creates a staff account, so we can welcome-email
+    # them after the commit succeeds.
+    new_staff: StaffAddPayload | None = None
 
     if req.kind is RequestKind.ADD:
         if req.resource is RequestResource.STAFF:
@@ -205,6 +209,7 @@ async def approve_access_request(
             # The email may have been taken since the request was filed.
             await _ensure_email_available(db, data.email)
             temp_password = generate_temp_password()
+            new_staff = data
             db.add(
                 User(
                     hotel_id=req.hotel_id,
@@ -244,6 +249,17 @@ async def approve_access_request(
 
     await db.commit()
     await db.refresh(req)
+
+    # Welcome the newly-created staff member with their temp password + sign-in
+    # link. Best-effort: the account is committed, so a mail failure must not
+    # fail the approval.
+    if new_staff is not None and temp_password is not None:
+        await send_welcome_email_best_effort(
+            to=new_staff.email,
+            name=new_staff.name,
+            temp_password=temp_password,
+        )
+
     return AccessRequestDecision(
         request=AccessRequestRead.model_validate(req),
         temporary_password=temp_password,

@@ -72,7 +72,15 @@ def require_roles(*roles: UserRole) -> Callable[[User], Awaitable[User]]:
 
 # Common role guards.
 require_admin = require_roles(UserRole.ADMIN)
-require_manager_or_above = require_roles(UserRole.ADMIN, UserRole.MANAGER)
+# Hotel-ops roles: manager and front desk share the same operational powers
+# (room status, task CRUD, viewing staff/hotel). Admin is included as the
+# platform superset.
+require_manager_or_above = require_roles(
+    UserRole.ADMIN, UserRole.MANAGER, UserRole.FRONT_DESK
+)
+# Filing/tracking staff & room access requests is the one hotel-ops power front
+# desk does NOT have — only managers (and admins) may request add/remove.
+require_requester = require_roles(UserRole.ADMIN, UserRole.MANAGER)
 
 
 def require_same_hotel(hotel_id: uuid.UUID, current_user: User) -> None:

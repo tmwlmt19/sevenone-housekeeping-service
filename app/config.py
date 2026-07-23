@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # Login-app route that renders the reset form; the raw token is appended as
     # ?token=... . Prod: https://login.sevenone.com/reset-password
     password_reset_url_base: str = "http://localhost:5174/reset-password"
+    # Login-app sign-in URL, linked from the welcome email a new user receives.
+    # Prod: https://login.sevenone.com
+    login_url: str = "http://localhost:5174"
     password_reset_token_ttl_minutes: int = 30
     # Per-user throttle: refuse to mint a new reset token if one was created for
     # that user within this window.
