@@ -7,6 +7,7 @@ from app.database import Base
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
+    from app.models.hotel_api_key import HotelApiKey
     from app.models.room import Room
     from app.models.task import Task
     from app.models.user import User
@@ -28,5 +29,8 @@ class Hotel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="hotel", cascade="all, delete-orphan"
     )
     tasks: Mapped[list["Task"]] = relationship(
+        back_populates="hotel", cascade="all, delete-orphan"
+    )
+    api_keys: Mapped[list["HotelApiKey"]] = relationship(
         back_populates="hotel", cascade="all, delete-orphan"
     )
