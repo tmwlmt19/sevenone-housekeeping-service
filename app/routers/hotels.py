@@ -14,7 +14,12 @@ from app.dependencies import (
 from app.models.hotel import Hotel
 from app.models.room import Room
 from app.models.user import User
-from app.schemas.hotel import HotelCreate, HotelRead, HotelUpdate
+from app.schemas.hotel import (
+    HotelCreate,
+    HotelRead,
+    HotelUpdate,
+    TaskApprovalSetting,
+)
 from app.schemas.provision import (
     HotelProvisionRequest,
     HotelProvisionResponse,
@@ -201,6 +206,24 @@ async def update_hotel(
     hotel = await _get_hotel_or_404(db, hotel_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(hotel, field, value)
+    await db.commit()
+    await db.refresh(hotel)
+    return hotel
+
+
+@router.patch("/{hotel_id}/task-approval", response_model=HotelRead)
+async def set_task_approval(
+    hotel_id: uuid.UUID,
+    payload: TaskApprovalSetting,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_manager_or_above),
+) -> Hotel:
+    """Toggle whether completing a task auto-approves (skips the manager sign-off
+    step). Hotel ops (manager/front-desk) own this, so it's not admin-gated like
+    the rest of hotel settings."""
+    require_same_hotel(hotel_id, current_user)
+    hotel = await _get_hotel_or_404(db, hotel_id)
+    hotel.auto_approve_tasks = payload.auto_approve_tasks
     await db.commit()
     await db.refresh(hotel)
     return hotel

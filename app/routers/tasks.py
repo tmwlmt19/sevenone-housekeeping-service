@@ -12,12 +12,16 @@ from app.dependencies import (
     require_same_hotel,
 )
 from app.models.enums import RoomStatus, TaskStatus, UserRole
+from app.models.hotel import Hotel
 from app.models.room import Room
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskRead, TaskStatusUpdate, TaskUpdate
 
 router = APIRouter(prefix="/api/v1/hotels/{hotel_id}/tasks", tags=["tasks"])
+
+# Roles that run hotel operations (can complete/approve tasks directly).
+_MANAGER_ROLES = (UserRole.ADMIN, UserRole.MANAGER, UserRole.FRONT_DESK)
 
 
 async def _get_task_in_hotel_or_404(
@@ -54,14 +58,22 @@ async def _validate_assignee(
 
 
 async def _apply_completion_side_effects(
-    db: AsyncSession, task: Task, new_status: TaskStatus
+    db: AsyncSession,
+    task: Task,
+    new_status: TaskStatus,
+    *,
+    cleaned_by: uuid.UUID | None = None,
 ) -> None:
-    """Keep completed_at and the room's status in sync with task status."""
+    """Keep completed_at, the room's status, and last_cleaned_by in sync with the
+    task status. On completion the room is marked clean and credited to the
+    housekeeper who did the work (the assignee), falling back to whoever completed
+    it. Any non-completed status (incl. pending_approval) clears completed_at."""
     if new_status == TaskStatus.COMPLETED and task.status != TaskStatus.COMPLETED:
         task.completed_at = datetime.now(timezone.utc)
         room = await db.get(Room, task.room_id)
         if room is not None:
             room.status = RoomStatus.CLEAN
+            room.last_cleaned_by = task.assigned_to or cleaned_by
     elif new_status != TaskStatus.COMPLETED:
         task.completed_at = None
 
@@ -85,7 +97,9 @@ async def create_task(
 
     task = Task(hotel_id=hotel_id, **data)
     if task.status == TaskStatus.COMPLETED:
-        await _apply_completion_side_effects(db, task, TaskStatus.COMPLETED)
+        await _apply_completion_side_effects(
+            db, task, TaskStatus.COMPLETED, cleaned_by=current_user.id
+        )
     db.add(task)
     await db.commit()
     await db.refresh(task)
@@ -152,7 +166,9 @@ async def update_task(
         await _validate_assignee(db, hotel_id, data["assigned_to"])
 
     if "status" in data:
-        await _apply_completion_side_effects(db, task, data["status"])
+        await _apply_completion_side_effects(
+            db, task, data["status"], cleaned_by=current_user.id
+        )
     for field, value in data.items():
         setattr(task, field, value)
 
@@ -169,12 +185,18 @@ async def update_task_status(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Task:
-    """Update only a task's status. Allowed for managers/admins, or the
-    housekeeper the task is assigned to."""
+    """Update only a task's status.
+
+    Allowed for managers/front-desk/admins, or the housekeeper the task is
+    assigned to. Approval flow: when a housekeeper marks a task complete it goes
+    to `pending_approval` for manager/front-desk sign-off, unless the hotel has
+    `auto_approve_tasks` on (then it completes straight away). A task awaiting
+    approval is out of the housekeeper's hands — only a manager can move it (to
+    `completed` = approve, or back = reject)."""
     require_same_hotel(hotel_id, current_user)
     task = await _get_task_in_hotel_or_404(db, hotel_id, task_id)
 
-    is_manager = current_user.role in (UserRole.ADMIN, UserRole.MANAGER)
+    is_manager = current_user.role in _MANAGER_ROLES
     is_assignee = task.assigned_to == current_user.id
     if not (is_manager or is_assignee):
         raise HTTPException(
@@ -182,8 +204,25 @@ async def update_task_status(
             detail="You can only update status on tasks assigned to you",
         )
 
-    await _apply_completion_side_effects(db, task, payload.status)
-    task.status = payload.status
+    # A submitted task is with the manager now; the housekeeper can't pull it back.
+    if task.status == TaskStatus.PENDING_APPROVAL and not is_manager:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This task is awaiting manager approval",
+        )
+
+    new_status = payload.status
+    # A housekeeper completing a task submits it for approval, unless the hotel
+    # auto-approves. Managers/front-desk/admins complete (or approve) directly.
+    if new_status == TaskStatus.COMPLETED and not is_manager:
+        hotel = await db.get(Hotel, hotel_id)
+        if hotel is not None and not hotel.auto_approve_tasks:
+            new_status = TaskStatus.PENDING_APPROVAL
+
+    await _apply_completion_side_effects(
+        db, task, new_status, cleaned_by=current_user.id
+    )
+    task.status = new_status
     await db.commit()
     await db.refresh(task)
     return task

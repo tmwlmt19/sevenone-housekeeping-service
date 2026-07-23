@@ -88,8 +88,14 @@ async def test_list_and_filter_tasks(
 
 
 async def test_assignee_completes_task_marks_room_clean(
-    client, housekeeper_user, test_hotel, test_room, test_task
+    client, db_session, housekeeper_user, test_hotel, test_room, test_task
 ):
+    # With auto-approve on, an assignee completing a task finishes it directly
+    # (no separate approval step). The pending-approval path is covered in
+    # test_task_approval.py.
+    test_hotel.auto_approve_tasks = True
+    await db_session.flush()
+
     r = await client.patch(
         f"/api/v1/hotels/{test_hotel.id}/tasks/{test_task.id}/status",
         headers=auth_headers(housekeeper_user),

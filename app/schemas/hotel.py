@@ -15,6 +15,13 @@ class HotelUpdate(BaseModel):
     auto_approve_tasks: bool | None = None
 
 
+class TaskApprovalSetting(BaseModel):
+    """The per-hotel task auto-approve toggle. Settable by hotel ops
+    (manager/front-desk), not just platform admins."""
+
+    auto_approve_tasks: bool
+
+
 class HotelRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
