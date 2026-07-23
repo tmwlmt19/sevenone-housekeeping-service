@@ -2,7 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import access_requests, auth, hotels, rooms, tasks, users
+from app.routers import (
+    access_requests,
+    api_keys,
+    auth,
+    hotels,
+    integrations,
+    rooms,
+    tasks,
+    users,
+)
 
 settings = get_settings()
 
@@ -32,3 +41,5 @@ app.include_router(users.router)
 app.include_router(rooms.router)
 app.include_router(tasks.router)
 app.include_router(access_requests.router)
+app.include_router(api_keys.router)
+app.include_router(integrations.router)

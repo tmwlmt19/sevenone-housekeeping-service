@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -8,6 +9,14 @@ from jose import JWTError, jwt
 from app.config import get_settings
 
 settings = get_settings()
+
+# Per-hotel PMS API keys. The visible prefix (below) doubles as a human-readable
+# label in the admin UI and is stored alongside the hash so a key can be
+# identified without ever persisting its secret.
+API_KEY_PREFIX = "so_pms_"
+# How many leading characters of the full key we keep for display (prefix + a
+# few token chars, e.g. "so_pms_Ab12Cd"). Never enough to reconstruct the key.
+API_KEY_DISPLAY_LEN = len(API_KEY_PREFIX) + 6
 
 # bcrypt operates on at most 72 bytes; longer inputs raise in bcrypt 5.x, so we
 # truncate consistently for both hashing and verification.
@@ -35,6 +44,22 @@ def generate_temp_password() -> str:
     user). Readable enough to communicate, but not guessable. The recipient must
     change it on first login."""
     return "Sev-" + secrets.token_urlsafe(9)
+
+
+def generate_api_key() -> str:
+    """A high-entropy per-hotel PMS API key. Shown to the admin exactly once;
+    only its SHA-256 hash is stored (see `hash_api_key`)."""
+    return API_KEY_PREFIX + secrets.token_urlsafe(32)
+
+
+def hash_api_key(key: str) -> str:
+    """Deterministic SHA-256 hash of an API key, for storage and lookup.
+
+    Unlike passwords, API keys are long and random, so a fast unsalted hash is
+    both safe and *necessary*: the hotel is derived from the key, so we must be
+    able to find the matching row by hashing the presented key and doing a single
+    indexed equality lookup (bcrypt's per-hash salt would make that impossible)."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def create_access_token(
