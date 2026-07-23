@@ -28,6 +28,35 @@ class TaskStatusUpdate(BaseModel):
     status: TaskStatus
 
 
+class ReassignWorkload(BaseModel):
+    """Move ALL of one housekeeper's open tasks to a single other housekeeper
+    (a call-in: the first housekeeper is out, one person covers everything)."""
+
+    from_housekeeper_id: uuid.UUID
+    to_housekeeper_id: uuid.UUID
+
+
+class RedistributeWorkload(BaseModel):
+    """Split one housekeeper's open tasks evenly across the hotel's other
+    housekeepers (a no-show: spread the load rather than dump it on one person)."""
+
+    from_housekeeper_id: uuid.UUID
+
+
+class WorkloadAssignment(BaseModel):
+    housekeeper_id: uuid.UUID
+    name: str
+    tasks_assigned: int
+
+
+class WorkloadMoveResponse(BaseModel):
+    """Summary of a reassign/redistribute: how many open tasks moved and how many
+    each receiving housekeeper ended up with."""
+
+    tasks_moved: int
+    assignments: list[WorkloadAssignment]
+
+
 class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

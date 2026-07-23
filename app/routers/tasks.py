@@ -16,7 +16,16 @@ from app.models.hotel import Hotel
 from app.models.room import Room
 from app.models.task import Task
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskRead, TaskStatusUpdate, TaskUpdate
+from app.schemas.task import (
+    ReassignWorkload,
+    RedistributeWorkload,
+    TaskCreate,
+    TaskRead,
+    TaskStatusUpdate,
+    TaskUpdate,
+    WorkloadMoveResponse,
+)
+from app.services import workload
 
 router = APIRouter(prefix="/api/v1/hotels/{hotel_id}/tasks", tags=["tasks"])
 
@@ -104,6 +113,37 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     return task
+
+
+@router.post("/reassign", response_model=WorkloadMoveResponse)
+async def reassign_workload(
+    hotel_id: uuid.UUID,
+    payload: ReassignWorkload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_manager_or_above),
+) -> dict:
+    """Call-in: move every open task from one housekeeper to a single other one."""
+    require_same_hotel(hotel_id, current_user)
+    return await workload.reassign_all(
+        db,
+        hotel_id=hotel_id,
+        from_id=payload.from_housekeeper_id,
+        to_id=payload.to_housekeeper_id,
+    )
+
+
+@router.post("/redistribute", response_model=WorkloadMoveResponse)
+async def redistribute_workload(
+    hotel_id: uuid.UUID,
+    payload: RedistributeWorkload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_manager_or_above),
+) -> dict:
+    """No-show: split one housekeeper's open tasks evenly across the others."""
+    require_same_hotel(hotel_id, current_user)
+    return await workload.redistribute(
+        db, hotel_id=hotel_id, from_id=payload.from_housekeeper_id
+    )
 
 
 @router.get("", response_model=list[TaskRead])
