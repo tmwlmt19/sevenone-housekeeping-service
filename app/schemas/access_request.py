@@ -22,7 +22,7 @@ from app.schemas.room import _normalize_room_type
 
 # Roles a manager may request to add. Admin is a platform-level role and is
 # never created through a tenant's staff request.
-_REQUESTABLE_ROLES = {UserRole.MANAGER, UserRole.HOUSEKEEPER}
+_REQUESTABLE_ROLES = {UserRole.MANAGER, UserRole.FRONT_DESK, UserRole.HOUSEKEEPER}
 
 
 class StaffAddPayload(BaseModel):
@@ -37,7 +37,7 @@ class StaffAddPayload(BaseModel):
     @classmethod
     def _role_is_requestable(cls, value: UserRole) -> UserRole:
         if value not in _REQUESTABLE_ROLES:
-            raise ValueError("Role must be manager or housekeeper")
+            raise ValueError("Role must be manager, front desk, or housekeeper")
         return value
 
 

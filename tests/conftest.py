@@ -119,6 +119,13 @@ async def manager_user(db_session: AsyncSession, test_hotel: Hotel) -> User:
 
 
 @pytest_asyncio.fixture
+async def front_desk_user(db_session: AsyncSession, test_hotel: Hotel) -> User:
+    return await _make_user(
+        db_session, test_hotel, "frontdesk@test.com", UserRole.FRONT_DESK
+    )
+
+
+@pytest_asyncio.fixture
 async def housekeeper_user(db_session: AsyncSession, test_hotel: Hotel) -> User:
     return await _make_user(
         db_session, test_hotel, "housekeeper@test.com", UserRole.HOUSEKEEPER

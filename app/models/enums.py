@@ -16,6 +16,9 @@ def pg_enum(enum_cls: type[enum.Enum], name: str) -> SAEnum:
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
     MANAGER = "manager"
+    # Front desk: same hotel-ops capabilities as a manager, but cannot file
+    # staff/room add-remove requests.
+    FRONT_DESK = "front_desk"
     HOUSEKEEPER = "housekeeper"
 
 
@@ -30,6 +33,9 @@ class TaskStatus(str, enum.Enum):
     PENDING = "pending"
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
+    # Housekeeper finished; awaiting manager/front-desk sign-off (unless the
+    # hotel auto-approves).
+    PENDING_APPROVAL = "pending_approval"
     COMPLETED = "completed"
 
 
