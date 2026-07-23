@@ -16,6 +16,11 @@ from app.models.room import Room
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskRead, TaskStatusUpdate, TaskUpdate
+from app.schemas.task_import import (
+    DirtyRoomImportRequest,
+    DirtyRoomImportResponse,
+)
+from app.services.task_import import import_dirty_rooms
 
 router = APIRouter(prefix="/api/v1/hotels/{hotel_id}/tasks", tags=["tasks"])
 
@@ -90,6 +95,33 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     return task
+
+
+@router.post(
+    "/import",
+    response_model=DirtyRoomImportResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_dirty_rooms_endpoint(
+    hotel_id: uuid.UUID,
+    payload: DirtyRoomImportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_manager_or_above),
+) -> DirtyRoomImportResponse:
+    """Bulk-import a list of dirty rooms (e.g. from a manager's CSV): set each
+    room dirty, create a cleaning task per room, and optionally split the new
+    tasks evenly across the chosen housekeepers. See the shared core in
+    app/services/task_import.py for the full contract."""
+    require_same_hotel(hotel_id, current_user)
+    summary = await import_dirty_rooms(
+        db,
+        hotel_id=hotel_id,
+        room_numbers=payload.rooms,
+        housekeeper_refs=[str(hk_id) for hk_id in payload.housekeeper_ids],
+        resolve_mode="id",
+        priority=payload.priority,
+    )
+    return DirtyRoomImportResponse(**summary)
 
 
 @router.get("", response_model=list[TaskRead])
