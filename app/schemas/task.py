@@ -57,6 +57,12 @@ class WorkloadMoveResponse(BaseModel):
     assignments: list[WorkloadAssignment]
 
 
+class ClearCompletedResponse(BaseModel):
+    """How many completed tasks were cleared (soft-archived) off the board."""
+
+    cleared: int
+
+
 class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

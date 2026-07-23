@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -17,6 +17,7 @@ from app.models.room import Room
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.task import (
+    ClearCompletedResponse,
     ReassignWorkload,
     RedistributeWorkload,
     TaskCreate,
@@ -146,6 +147,28 @@ async def redistribute_workload(
     )
 
 
+@router.post("/clear-completed", response_model=ClearCompletedResponse)
+async def clear_completed_tasks(
+    hotel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_manager_or_above),
+) -> ClearCompletedResponse:
+    """Clear all completed tasks off the board. Soft-archive (sets archived_at),
+    so the rows — and their 'last cleaned by' credit — are kept but hidden."""
+    require_same_hotel(hotel_id, current_user)
+    result = await db.execute(
+        update(Task)
+        .where(
+            Task.hotel_id == hotel_id,
+            Task.status == TaskStatus.COMPLETED,
+            Task.archived_at.is_(None),
+        )
+        .values(archived_at=datetime.now(timezone.utc))
+    )
+    await db.commit()
+    return ClearCompletedResponse(cleared=result.rowcount or 0)
+
+
 @router.get("", response_model=list[TaskRead])
 async def list_tasks(
     hotel_id: uuid.UUID,
@@ -155,7 +178,10 @@ async def list_tasks(
     assigned_to: uuid.UUID | None = Query(default=None),
 ) -> list[Task]:
     require_same_hotel(hotel_id, current_user)
-    query = select(Task).where(Task.hotel_id == hotel_id)
+    # Cleared (archived) tasks are hidden from the board by default.
+    query = select(Task).where(
+        Task.hotel_id == hotel_id, Task.archived_at.is_(None)
+    )
     if task_status is not None:
         query = query.where(Task.status == task_status)
     # Housekeepers may only ever see their own tasks, regardless of the filter.
