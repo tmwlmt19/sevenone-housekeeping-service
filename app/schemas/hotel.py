@@ -12,6 +12,7 @@ class HotelCreate(BaseModel):
 class HotelUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     address: str | None = None
+    auto_approve_tasks: bool | None = None
 
 
 class HotelRead(BaseModel):
@@ -20,5 +21,6 @@ class HotelRead(BaseModel):
     id: uuid.UUID
     name: str
     address: str | None
+    auto_approve_tasks: bool
     created_at: datetime
     updated_at: datetime
