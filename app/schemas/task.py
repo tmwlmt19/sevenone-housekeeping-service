@@ -37,10 +37,15 @@ class ReassignWorkload(BaseModel):
 
 
 class RedistributeWorkload(BaseModel):
-    """Split one housekeeper's open tasks evenly across the hotel's other
-    housekeepers (a no-show: spread the load rather than dump it on one person)."""
+    """Split one housekeeper's open tasks across a set of covering housekeepers
+    (a no-show: spread the load rather than dump it on one person).
+
+    `to_housekeeper_ids` names who to spread across; omit it (or send an empty
+    list) to spread across *all* of the hotel's other housekeepers. Naming a
+    single housekeeper hands them everything — the same effect as a reassign."""
 
     from_housekeeper_id: uuid.UUID
+    to_housekeeper_ids: list[uuid.UUID] | None = None
 
 
 class WorkloadAssignment(BaseModel):

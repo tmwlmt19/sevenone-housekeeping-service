@@ -65,6 +65,38 @@ async def _ensure_no_open_remove(
         )
 
 
+async def _ensure_no_open_add(
+    db: AsyncSession,
+    hotel_id: uuid.UUID,
+    resource: RequestResource,
+    *,
+    field: str,
+    value: str,
+) -> None:
+    """At most one pending add request per staff email / room number in a hotel
+    — the identity lives in the JSONB payload since no row exists yet. Also
+    enforced by a partial unique index; this gives a friendly error first."""
+    result = await db.execute(
+        select(AccessRequest.id).where(
+            AccessRequest.hotel_id == hotel_id,
+            AccessRequest.resource == resource,
+            AccessRequest.kind == RequestKind.ADD,
+            AccessRequest.status == RequestStatus.PENDING,
+            AccessRequest.payload[field].astext == value,
+        )
+    )
+    if result.first() is not None:
+        subject = (
+            "staff email"
+            if resource is RequestResource.STAFF
+            else "room number"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A pending add request already exists for this {subject}",
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Manager-facing (hotel-scoped)
 # --------------------------------------------------------------------------- #
@@ -92,10 +124,24 @@ async def file_access_request(
         if payload.resource is RequestResource.STAFF:
             assert isinstance(payload.payload, StaffAddPayload)
             await _ensure_email_available(db, payload.payload.email)
+            await _ensure_no_open_add(
+                db,
+                hotel_id,
+                RequestResource.STAFF,
+                field="email",
+                value=str(payload.payload.email),
+            )
         else:  # ROOM
             assert isinstance(payload.payload, RoomAddPayload)
             await _ensure_room_number_available(
                 db, hotel_id, payload.payload.room_number
+            )
+            await _ensure_no_open_add(
+                db,
+                hotel_id,
+                RequestResource.ROOM,
+                field="room_number",
+                value=payload.payload.room_number,
             )
         stored_payload = payload.payload.model_dump(mode="json")
     else:  # REMOVE

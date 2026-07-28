@@ -145,10 +145,14 @@ async def redistribute_workload(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_manager_or_above),
 ) -> dict:
-    """No-show: split one housekeeper's open tasks evenly across the others."""
+    """No-show: split one housekeeper's open tasks across the covering
+    housekeepers — a chosen subset, or all the others when none are named."""
     require_same_hotel(hotel_id, current_user)
     return await workload.redistribute(
-        db, hotel_id=hotel_id, from_id=payload.from_housekeeper_id
+        db,
+        hotel_id=hotel_id,
+        from_id=payload.from_housekeeper_id,
+        to_ids=payload.to_housekeeper_ids,
     )
 
 
