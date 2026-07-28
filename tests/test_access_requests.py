@@ -168,6 +168,46 @@ async def test_duplicate_pending_remove_conflicts(
     assert second.status_code == 409
 
 
+async def test_duplicate_pending_add_staff_conflicts(
+    client, manager_user, test_hotel
+):
+    body = {
+        "resource": "staff",
+        "kind": "add",
+        "payload": {
+            "email": "newhire@test.com",
+            "name": "New Hire",
+            "role": "housekeeper",
+        },
+    }
+    first = await client.post(
+        _hotel_url(test_hotel.id), headers=auth_headers(manager_user), json=body
+    )
+    assert first.status_code == 201
+    second = await client.post(
+        _hotel_url(test_hotel.id), headers=auth_headers(manager_user), json=body
+    )
+    assert second.status_code == 409
+
+
+async def test_duplicate_pending_add_room_conflicts(
+    client, manager_user, test_hotel
+):
+    body = {
+        "resource": "room",
+        "kind": "add",
+        "payload": {"room_number": "808"},
+    }
+    first = await client.post(
+        _hotel_url(test_hotel.id), headers=auth_headers(manager_user), json=body
+    )
+    assert first.status_code == 201
+    second = await client.post(
+        _hotel_url(test_hotel.id), headers=auth_headers(manager_user), json=body
+    )
+    assert second.status_code == 409
+
+
 async def test_add_requires_payload(client, manager_user, test_hotel):
     r = await client.post(
         _hotel_url(test_hotel.id),

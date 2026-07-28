@@ -195,6 +195,88 @@ async def test_redistribute_balances_by_existing_load(
     assert await _open_count(db_session, c.id) == 2
 
 
+async def test_redistribute_across_chosen_subset(
+    client, db_session, test_hotel, manager_user, housekeeper_user
+):
+    # Three idle housekeepers available, but the manager only spreads across two.
+    b = await _make_user(db_session, test_hotel, "hkB@test.com", UserRole.HOUSEKEEPER)
+    c = await _make_user(db_session, test_hotel, "hkC@test.com", UserRole.HOUSEKEEPER)
+    d = await _make_user(db_session, test_hotel, "hkD@test.com", UserRole.HOUSEKEEPER)
+    room = await _room(db_session, test_hotel.id, "101")
+    for _ in range(4):
+        await _task(db_session, test_hotel.id, room.id, housekeeper_user.id, TaskStatus.ASSIGNED)
+    await db_session.commit()
+
+    r = await client.post(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/redistribute",
+        headers=auth_headers(manager_user),
+        json={
+            "from_housekeeper_id": str(housekeeper_user.id),
+            "to_housekeeper_ids": [str(b.id), str(c.id)],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tasks_moved"] == 4
+    by_id = {a["housekeeper_id"]: a["tasks_assigned"] for a in body["assignments"]}
+    # Only B and C receive work, 2 each; D was not chosen and stays idle.
+    assert by_id == {str(b.id): 2, str(c.id): 2}
+    assert await _open_count(db_session, d.id) == 0
+
+
+async def test_redistribute_to_single_target_gets_everything(
+    client, db_session, test_hotel, manager_user, housekeeper_user
+):
+    b = await _make_user(db_session, test_hotel, "hkB@test.com", UserRole.HOUSEKEEPER)
+    await _make_user(db_session, test_hotel, "hkC@test.com", UserRole.HOUSEKEEPER)
+    room = await _room(db_session, test_hotel.id, "101")
+    for _ in range(3):
+        await _task(db_session, test_hotel.id, room.id, housekeeper_user.id, TaskStatus.ASSIGNED)
+    await db_session.commit()
+
+    r = await client.post(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/redistribute",
+        headers=auth_headers(manager_user),
+        json={
+            "from_housekeeper_id": str(housekeeper_user.id),
+            "to_housekeeper_ids": [str(b.id)],
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["tasks_moved"] == 3
+    assert await _open_count(db_session, b.id) == 3
+
+
+async def test_redistribute_subset_including_self_400(
+    client, db_session, test_hotel, manager_user, housekeeper_user
+):
+    b = await _make_user(db_session, test_hotel, "hkB@test.com", UserRole.HOUSEKEEPER)
+    await db_session.commit()
+    r = await client.post(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/redistribute",
+        headers=auth_headers(manager_user),
+        json={
+            "from_housekeeper_id": str(housekeeper_user.id),
+            "to_housekeeper_ids": [str(b.id), str(housekeeper_user.id)],
+        },
+    )
+    assert r.status_code == 400
+
+
+async def test_redistribute_subset_non_housekeeper_400(
+    client, test_hotel, manager_user, housekeeper_user
+):
+    r = await client.post(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/redistribute",
+        headers=auth_headers(manager_user),
+        json={
+            "from_housekeeper_id": str(housekeeper_user.id),
+            "to_housekeeper_ids": [str(manager_user.id)],  # not a housekeeper
+        },
+    )
+    assert r.status_code == 400
+
+
 async def test_redistribute_no_other_housekeepers_400(
     client, test_hotel, manager_user, housekeeper_user
 ):

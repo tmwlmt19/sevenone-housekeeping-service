@@ -4,8 +4,10 @@ Two operations, both hotel-ops actions (manager / front desk):
 
 - **reassign** — move ALL of one housekeeper's open tasks to a single other
   housekeeper (a call-in: one person covers everything).
-- **redistribute** — split one housekeeper's open tasks evenly across the hotel's
-  *other* housekeepers, balancing by each one's current open load (a no-show).
+- **redistribute** — split one housekeeper's open tasks across a set of covering
+  housekeepers, balancing by each one's current open load (a no-show). The set is
+  either an explicit subset the caller names or, by default, all the hotel's
+  *other* housekeepers.
 
 The redistribute balancer is the same min-heap-by-load approach the bulk import
 uses (`services/task_import.import_dirty_rooms`); kept here as a small local
@@ -44,6 +46,45 @@ async def _get_hotel_housekeeper(
             detail=f"{field} is not a housekeeper in this hotel",
         )
     return user
+
+
+async def _resolve_targets(
+    db: AsyncSession,
+    hotel_id: uuid.UUID,
+    from_id: uuid.UUID,
+    to_ids: list[uuid.UUID] | None,
+) -> list[User]:
+    """The housekeepers a redistribute spreads across. When `to_ids` is given,
+    it's that explicit subset (each validated as a hotel housekeeper who isn't
+    the one being covered, order-preserving-deduped); otherwise it's every other
+    housekeeper in the hotel."""
+    if to_ids:
+        seen: set[uuid.UUID] = set()
+        targets: list[User] = []
+        for to_id in to_ids:
+            if to_id == from_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot redistribute onto the housekeeper being covered",
+                )
+            if to_id in seen:
+                continue
+            seen.add(to_id)
+            targets.append(
+                await _get_hotel_housekeeper(
+                    db, hotel_id, to_id, field="to_housekeeper_ids"
+                )
+            )
+        return targets
+
+    result = await db.execute(
+        select(User).where(
+            User.hotel_id == hotel_id,
+            User.role == UserRole.HOUSEKEEPER,
+            User.id != from_id,
+        )
+    )
+    return list(result.scalars().all())
 
 
 async def _open_tasks_assigned_to(
@@ -131,20 +172,19 @@ async def reassign_all(
 
 
 async def redistribute(
-    db: AsyncSession, *, hotel_id: uuid.UUID, from_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    hotel_id: uuid.UUID,
+    from_id: uuid.UUID,
+    to_ids: list[uuid.UUID] | None = None,
 ) -> dict[str, object]:
-    """Split a housekeeper's open tasks evenly across the hotel's other
-    housekeepers, balancing by each one's current open load. Returns a summary."""
+    """Split a housekeeper's open tasks across a set of covering housekeepers,
+    balancing by each one's current open load. `to_ids` names who to spread
+    across; omit it (or pass an empty list) to use *all* of the hotel's other
+    housekeepers. Returns a summary."""
     await _get_hotel_housekeeper(db, hotel_id, from_id, field="from_housekeeper_id")
 
-    result = await db.execute(
-        select(User).where(
-            User.hotel_id == hotel_id,
-            User.role == UserRole.HOUSEKEEPER,
-            User.id != from_id,
-        )
-    )
-    others = list(result.scalars().all())
+    others = await _resolve_targets(db, hotel_id, from_id, to_ids)
     if not others:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
