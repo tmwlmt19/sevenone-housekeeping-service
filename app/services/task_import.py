@@ -30,8 +30,21 @@ from app.models.room import Room
 from app.models.task import Task
 from app.models.user import User
 
-# Task states that count as "open" — an open cleaning task makes a room a
-# duplicate, and open tasks are what the balancer equalizes.
+# Task states that mean a room already has a live cleaning task, so a re-import
+# skips it instead of raising a duplicate. Includes PENDING_APPROVAL: the room's
+# been cleaned but not yet signed off, so it isn't "clean" and the next day's
+# dirty-room report still lists it — we must not create a second task for it.
+ACTIVE_TASK_STATUSES = (
+    TaskStatus.PENDING,
+    TaskStatus.ASSIGNED,
+    TaskStatus.IN_PROGRESS,
+    TaskStatus.PENDING_APPROVAL,
+)
+
+# Task states that count toward a housekeeper's live workload when the balancer
+# equalizes new assignments. A pending-approval task is done from the
+# housekeeper's side (it's the manager's move now), so it doesn't add to the load
+# new work is spread against.
 OPEN_TASK_STATUSES = (
     TaskStatus.PENDING,
     TaskStatus.ASSIGNED,
@@ -215,7 +228,7 @@ async def import_dirty_rooms(
             select(Task.room_id).where(
                 Task.hotel_id == hotel_id,
                 Task.room_id.in_(room_ids),
-                Task.status.in_(OPEN_TASK_STATUSES),
+                Task.status.in_(ACTIVE_TASK_STATUSES),
             )
         )
         rooms_with_open_task = set(result.scalars().all())
