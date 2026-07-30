@@ -9,6 +9,7 @@ from app.routers import (
     access_requests,
     api_keys,
     auth,
+    floor_maps,
     hotels,
     integrations,
     rooms,
@@ -76,6 +77,7 @@ app.include_router(hotels.router)
 app.include_router(users.router)
 app.include_router(rooms.router)
 app.include_router(tasks.router)
+app.include_router(floor_maps.router)
 app.include_router(access_requests.router)
 app.include_router(api_keys.router)
 app.include_router(integrations.router)

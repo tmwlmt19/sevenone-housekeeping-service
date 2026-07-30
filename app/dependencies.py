@@ -121,6 +121,12 @@ require_manager_or_above = require_roles(
 # Filing/tracking staff & room access requests is the one hotel-ops power front
 # desk does NOT have — only managers (and admins) may request add/remove.
 require_requester = require_roles(UserRole.ADMIN, UserRole.MANAGER)
+# Floor map (web app only): managers + front desk view a hotel's layout; only
+# managers edit it (front desk is view-only). Platform admins live in the owner
+# console, which has no floor map, so they're intentionally excluded from both —
+# add ADMIN back here if support ever needs read access. See hotel-map-plan.md.
+require_layout_viewer = require_roles(UserRole.MANAGER, UserRole.FRONT_DESK)
+require_layout_editor = require_roles(UserRole.MANAGER)
 
 
 def require_same_hotel(hotel_id: uuid.UUID, current_user: User) -> None:
