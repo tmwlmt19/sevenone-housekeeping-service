@@ -147,6 +147,32 @@ async def test_import_retasks_room_with_only_completed_task(
     assert r.json()["tasks_created"] == 1  # completed task doesn't block
 
 
+async def test_import_skips_room_with_pending_approval_task(
+    client, db_session, test_hotel, manager_user, housekeeper_user
+):
+    # Cleaned but awaiting manager sign-off: the room isn't "clean" yet, so the
+    # next day's dirty-room report still lists it. A re-import must skip it, not
+    # raise a second task on top of the one waiting for approval.
+    room = await _room(db_session, test_hotel, "201", status=RoomStatus.DIRTY)
+    pending = Task(
+        hotel_id=test_hotel.id,
+        room_id=room.id,
+        assigned_to=housekeeper_user.id,
+        status=TaskStatus.PENDING_APPROVAL,
+    )
+    db_session.add(pending)
+    await db_session.flush()
+
+    r = await _import(client, test_hotel, manager_user, rooms=["201"])
+
+    assert r.status_code == 201
+    body = r.json()
+    assert body["tasks_created"] == 0
+    assert body["skipped"] == [
+        {"room_number": "201", "reason": "existing_open_task"}
+    ]
+
+
 async def test_import_skips_out_of_service_room(
     client, db_session, test_hotel, manager_user
 ):
