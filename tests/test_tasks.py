@@ -146,3 +146,45 @@ async def test_manager_updates_task(
     assert r.status_code == 200
     assert r.json()["priority"] == "urgent"
     assert r.json()["notes"] == "handle first"
+
+
+async def test_manager_deletes_task(client, manager_user, test_hotel, test_task):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/{test_task.id}",
+        headers=auth_headers(manager_user),
+    )
+    assert r.status_code == 204
+    # The row is gone, not just archived.
+    get = await client.get(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/{test_task.id}",
+        headers=auth_headers(manager_user),
+    )
+    assert get.status_code == 404
+
+
+async def test_front_desk_deletes_task(
+    client, front_desk_user, test_hotel, test_task
+):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/{test_task.id}",
+        headers=auth_headers(front_desk_user),
+    )
+    assert r.status_code == 204
+
+
+async def test_housekeeper_cannot_delete_task(
+    client, housekeeper_user, test_hotel, test_task
+):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/{test_task.id}",
+        headers=auth_headers(housekeeper_user),
+    )
+    assert r.status_code == 403
+
+
+async def test_delete_task_not_found(client, manager_user, test_hotel):
+    r = await client.delete(
+        f"/api/v1/hotels/{test_hotel.id}/tasks/{uuid.uuid4()}",
+        headers=auth_headers(manager_user),
+    )
+    assert r.status_code == 404
