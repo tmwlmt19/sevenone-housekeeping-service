@@ -29,11 +29,17 @@ class DirtyRoomImportRequest(BaseModel):
     - explicit: give `assignments` (room → housekeeper); each room's task goes to
       the named housekeeper verbatim, no balancing. Powers both the map's manual
       zones and its client-side auto proximity-split, which produce the same
-      explicit map. When present, `rooms`/`housekeeper_ids` are ignored."""
+      explicit map. When present, `rooms`/`housekeeper_ids` are ignored.
+
+    Set `create_tasks=false` to only mark the rooms dirty and create no tasks —
+    the "assign on the map later" path: rooms go dirty now, then the manager
+    groups them into cleaning tasks from the floor-map assign view. Housekeeper
+    inputs are ignored in that case."""
 
     rooms: list[str] = Field(default_factory=list)
     housekeeper_ids: list[uuid.UUID] = Field(default_factory=list)
     assignments: list[RoomAssignment] | None = None
+    create_tasks: bool = True
     priority: TaskPriority = TaskPriority.NORMAL
 
 
