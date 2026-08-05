@@ -10,12 +10,30 @@ from app.models.enums import TaskPriority
 SkipReason = Literal["existing_open_task", "out_of_service"]
 
 
+class RoomAssignment(BaseModel):
+    """One room handed to one housekeeper explicitly (the floor-map zone flow):
+    the caller has already decided who cleans this room, so the even-split
+    balancer is skipped for it."""
+
+    room_number: str
+    housekeeper_id: uuid.UUID
+
+
 class DirtyRoomImportRequest(BaseModel):
     """Manager/CSV path: rooms and housekeepers are already in canonical form
-    (plain room-number strings and housekeeper user IDs)."""
+    (plain room-number strings and housekeeper user IDs).
+
+    Two assignment modes, mutually exclusive per request:
+    - even-split: give `rooms` + `housekeeper_ids`; the balancer spreads the new
+      tasks across the housekeepers.
+    - explicit: give `assignments` (room → housekeeper); each room's task goes to
+      the named housekeeper verbatim, no balancing. Powers both the map's manual
+      zones and its client-side auto proximity-split, which produce the same
+      explicit map. When present, `rooms`/`housekeeper_ids` are ignored."""
 
     rooms: list[str] = Field(default_factory=list)
     housekeeper_ids: list[uuid.UUID] = Field(default_factory=list)
+    assignments: list[RoomAssignment] | None = None
     priority: TaskPriority = TaskPriority.NORMAL
 
 
