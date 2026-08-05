@@ -9,8 +9,9 @@ import uuid
 
 from conftest import auth_headers
 
-from app.models.enums import RoomStatus
+from app.models.enums import RoomStatus, TaskStatus
 from app.models.room import Room
+from app.models.task import Task
 
 
 async def _add_room(db, hotel, number: str, floor: int | None) -> Room:
@@ -48,6 +49,45 @@ async def test_manager_sees_unplaced_rooms(
     room = next(rm for rm in floor1["rooms"] if rm["id"] == str(test_room.id))
     assert room["placement"] is None
     assert room["status"] == "dirty"
+
+
+async def test_map_flags_rooms_with_open_task(
+    client, db_session, manager_user, test_hotel
+):
+    # A dirty room with a live task is flagged; a dirty room without one is not.
+    tasked = await _add_room(db_session, test_hotel, "201", floor=1)
+    untasked = await _add_room(db_session, test_hotel, "202", floor=1)
+    db_session.add(
+        Task(hotel_id=test_hotel.id, room_id=tasked.id, status=TaskStatus.ASSIGNED)
+    )
+    await db_session.flush()
+
+    r = await client.get(
+        f"/api/v1/hotels/{test_hotel.id}/map",
+        headers=auth_headers(manager_user),
+    )
+    assert r.status_code == 200
+    by_id = {rm["id"]: rm for rm in _floor(r.json(), 1)["rooms"]}
+    assert by_id[str(tasked.id)]["has_open_task"] is True
+    assert by_id[str(untasked.id)]["has_open_task"] is False
+
+
+async def test_map_open_task_ignores_completed(
+    client, db_session, manager_user, test_hotel
+):
+    # A completed/archived task is not "open" — the room stays a candidate.
+    room = await _add_room(db_session, test_hotel, "201", floor=1)
+    db_session.add(
+        Task(hotel_id=test_hotel.id, room_id=room.id, status=TaskStatus.COMPLETED)
+    )
+    await db_session.flush()
+
+    r = await client.get(
+        f"/api/v1/hotels/{test_hotel.id}/map",
+        headers=auth_headers(manager_user),
+    )
+    by_id = {rm["id"]: rm for rm in _floor(r.json(), 1)["rooms"]}
+    assert by_id[str(room.id)]["has_open_task"] is False
 
 
 async def test_front_desk_can_view(client, front_desk_user, test_hotel, test_room):
