@@ -56,6 +56,23 @@ async def test_get_own_hotel(client, admin_user, test_hotel):
     assert r.json()["id"] == str(test_hotel.id)
 
 
+async def test_manager_can_get_own_hotel(client, manager_user, test_hotel):
+    r = await client.get(
+        f"/api/v1/hotels/{test_hotel.id}", headers=auth_headers(manager_user)
+    )
+    assert r.status_code == 200
+    assert r.json()["id"] == str(test_hotel.id)
+
+
+async def test_housekeeper_cannot_get_hotel(client, housekeeper_user, test_hotel):
+    """Viewing a hotel's profile is a manager+ capability; housekeepers have no
+    feature that needs it and must be refused."""
+    r = await client.get(
+        f"/api/v1/hotels/{test_hotel.id}", headers=auth_headers(housekeeper_user)
+    )
+    assert r.status_code == 403
+
+
 async def test_update_hotel(client, admin_user, test_hotel):
     r = await client.put(
         f"/api/v1/hotels/{test_hotel.id}",

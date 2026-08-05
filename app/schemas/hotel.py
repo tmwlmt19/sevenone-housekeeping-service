@@ -12,6 +12,14 @@ class HotelCreate(BaseModel):
 class HotelUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     address: str | None = None
+    auto_approve_tasks: bool | None = None
+
+
+class TaskApprovalSetting(BaseModel):
+    """The per-hotel task auto-approve toggle. Settable by hotel ops
+    (manager/front-desk), not just platform admins."""
+
+    auto_approve_tasks: bool
 
 
 class HotelRead(BaseModel):
@@ -20,5 +28,6 @@ class HotelRead(BaseModel):
     id: uuid.UUID
     name: str
     address: str | None
+    auto_approve_tasks: bool
     created_at: datetime
     updated_at: datetime

@@ -10,8 +10,10 @@ from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.enums import RoomStatus, pg_enum
 
 if TYPE_CHECKING:
+    from app.models.floor_map import RoomPlacement
     from app.models.hotel import Hotel
     from app.models.task import Task
+    from app.models.user import User
 
 
 class Room(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -37,8 +39,24 @@ class Room(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=RoomStatus.CLEAN,
     )
+    # The housekeeper who last completed a cleaning task on this room (set when a
+    # task is completed/approved). Kept for accountability; nulled if that user
+    # is deleted.
+    last_cleaned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     hotel: Mapped["Hotel"] = relationship(back_populates="rooms")
     tasks: Mapped[list["Task"]] = relationship(
         back_populates="room", cascade="all, delete-orphan"
+    )
+    last_cleaned_by_user: Mapped["User | None"] = relationship(
+        "User", foreign_keys=[last_cleaned_by]
+    )
+    # Optional layout position on the hotel floor map; None until the room is
+    # placed in the editor. 1:1 (room_placements.room_id is its primary key).
+    placement: Mapped["RoomPlacement | None"] = relationship(
+        back_populates="room", cascade="all, delete-orphan", uselist=False
     )

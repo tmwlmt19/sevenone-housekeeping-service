@@ -7,7 +7,11 @@ from app.schemas.user import UserRead
 
 # Roles that may be created via provisioning/import. Admin is a platform-level
 # role and is never created for a tenant this way.
-_PROVISIONABLE_ROLES = {UserRole.MANAGER, UserRole.HOUSEKEEPER}
+_PROVISIONABLE_ROLES = {
+    UserRole.MANAGER,
+    UserRole.FRONT_DESK,
+    UserRole.HOUSEKEEPER,
+}
 
 
 class UserProvision(BaseModel):
@@ -22,7 +26,7 @@ class UserProvision(BaseModel):
     @classmethod
     def _role_is_provisionable(cls, value: UserRole) -> UserRole:
         if value not in _PROVISIONABLE_ROLES:
-            raise ValueError("Role must be manager or housekeeper")
+            raise ValueError("Role must be manager, front desk, or housekeeper")
         return value
 
 

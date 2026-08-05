@@ -1,13 +1,17 @@
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import decode_access_token
+from app.auth import decode_access_token, hash_api_key
 from app.config import get_settings
 from app.database import get_db
 from app.models.enums import UserRole
+from app.models.hotel import Hotel
+from app.models.hotel_api_key import HotelApiKey
 from app.models.user import User
 
 settings = get_settings()
@@ -16,6 +20,12 @@ _CREDENTIALS_ERROR = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Could not validate credentials",
     headers={"WWW-Authenticate": "Bearer"},
+)
+
+_API_KEY_HEADER = "X-API-Key"
+_API_KEY_ERROR = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Invalid or missing API key",
 )
 
 
@@ -56,6 +66,36 @@ async def get_current_user(
     return user
 
 
+async def get_hotel_from_api_key(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Hotel:
+    """Authenticate a machine caller (e.g. a PMS) by its per-hotel API key.
+
+    The hotel is derived entirely from the key — never from client input — so a
+    key can only ever act on its own tenant. Returns the owning Hotel."""
+    presented = request.headers.get(_API_KEY_HEADER)
+    if not presented:
+        raise _API_KEY_ERROR
+
+    result = await db.execute(
+        select(HotelApiKey).where(
+            HotelApiKey.key_hash == hash_api_key(presented),
+            HotelApiKey.revoked_at.is_(None),
+        )
+    )
+    api_key = result.scalar_one_or_none()
+    if api_key is None:
+        raise _API_KEY_ERROR
+
+    api_key.last_used_at = datetime.now(timezone.utc)
+
+    hotel = await db.get(Hotel, api_key.hotel_id)
+    if hotel is None:
+        raise _API_KEY_ERROR
+    return hotel
+
+
 def require_roles(*roles: UserRole) -> Callable[[User], Awaitable[User]]:
     """Dependency factory: allow only users whose role is in `roles`."""
 
@@ -72,7 +112,21 @@ def require_roles(*roles: UserRole) -> Callable[[User], Awaitable[User]]:
 
 # Common role guards.
 require_admin = require_roles(UserRole.ADMIN)
-require_manager_or_above = require_roles(UserRole.ADMIN, UserRole.MANAGER)
+# Hotel-ops roles: manager and front desk share the same operational powers
+# (room status, task CRUD, viewing staff/hotel). Admin is included as the
+# platform superset.
+require_manager_or_above = require_roles(
+    UserRole.ADMIN, UserRole.MANAGER, UserRole.FRONT_DESK
+)
+# Filing/tracking staff & room access requests is the one hotel-ops power front
+# desk does NOT have — only managers (and admins) may request add/remove.
+require_requester = require_roles(UserRole.ADMIN, UserRole.MANAGER)
+# Floor map (web app only): managers + front desk view a hotel's layout; only
+# managers edit it (front desk is view-only). Platform admins live in the owner
+# console, which has no floor map, so they're intentionally excluded from both —
+# add ADMIN back here if support ever needs read access. See hotel-map-plan.md.
+require_layout_viewer = require_roles(UserRole.MANAGER, UserRole.FRONT_DESK)
+require_layout_editor = require_roles(UserRole.MANAGER)
 
 
 def require_same_hotel(hotel_id: uuid.UUID, current_user: User) -> None:

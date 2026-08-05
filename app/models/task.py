@@ -55,6 +55,12 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Set when a manager/front-desk "clears" a completed task off the board. The
+    # row is kept (soft archive) so "last cleaned by" and history survive; cleared
+    # tasks are simply hidden from the default task list.
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     hotel: Mapped["Hotel"] = relationship(back_populates="tasks")
     room: Mapped["Room"] = relationship(back_populates="tasks")

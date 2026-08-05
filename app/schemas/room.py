@@ -49,5 +49,6 @@ class RoomRead(BaseModel):
     floor: int | None
     room_type: str | None
     status: RoomStatus
+    last_cleaned_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
