@@ -70,7 +70,10 @@ class PlacementWrite(BaseModel):
 
 class MapRoomRead(BaseModel):
     """A room as it appears on the map: identity + live status + where it sits
-    (placement is null until the room has been placed)."""
+    (placement is null until the room has been placed). `has_open_task` flags a
+    room that already carries a live cleaning task — the assign view uses it to
+    exclude such rooms from the dirty-room candidates (same rule the import uses
+    to skip them), so it never double-tasks a room."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -78,6 +81,7 @@ class MapRoomRead(BaseModel):
     room_number: str
     room_type: str | None
     status: RoomStatus
+    has_open_task: bool = False
     placement: PlacementRead | None
 
 

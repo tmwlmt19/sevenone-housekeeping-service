@@ -12,6 +12,7 @@ from app.dependencies import (
 )
 from app.models.floor_map import FloorDecoration, FloorMap, RoomPlacement
 from app.models.room import Room
+from app.models.task import Task
 from app.models.user import User
 from app.schemas.floor_map import (
     DecorationRead,
@@ -21,24 +22,43 @@ from app.schemas.floor_map import (
     MapRoomRead,
     PlacementRead,
 )
+from app.services.task_import import ACTIVE_TASK_STATUSES
 
 # Nested under a hotel like the other hotel-scoped resources. Layout is a third
 # "scoped write" alongside room status and access requests — see hotel-map-plan.md.
 router = APIRouter(prefix="/api/v1/hotels/{hotel_id}", tags=["floor-maps"])
 
 
-def _map_room(room: Room, placement: RoomPlacement | None) -> MapRoomRead:
+def _map_room(
+    room: Room, placement: RoomPlacement | None, has_open_task: bool = False
+) -> MapRoomRead:
     return MapRoomRead(
         id=room.id,
         room_number=room.room_number,
         room_type=room.room_type,
         status=room.status,
+        has_open_task=has_open_task,
         placement=(
             PlacementRead.model_validate(placement)
             if placement is not None
             else None
         ),
     )
+
+
+async def _rooms_with_open_task(
+    db: AsyncSession, room_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Which of the given rooms already carry a live cleaning task (same statuses
+    the import treats as an existing task, so the map and import agree)."""
+    if not room_ids:
+        return set()
+    result = await db.execute(
+        select(Task.room_id)
+        .where(Task.room_id.in_(room_ids), Task.status.in_(ACTIVE_TASK_STATUSES))
+        .distinct()
+    )
+    return set(result.scalars().all())
 
 
 async def _rooms_on_floor(
@@ -51,7 +71,9 @@ async def _rooms_on_floor(
         .where(Room.hotel_id == hotel_id, Room.floor == floor)
         .order_by(Room.room_number)
     )
-    return [_map_room(room, placement) for room, placement in result.all()]
+    rows = result.all()
+    tasked = await _rooms_with_open_task(db, [room.id for room, _ in rows])
+    return [_map_room(room, placement, room.id in tasked) for room, placement in rows]
 
 
 async def _decorations_of(
@@ -107,10 +129,12 @@ async def get_hotel_map(
         .where(Room.hotel_id == hotel_id, Room.floor.is_not(None))
         .order_by(Room.floor, Room.room_number)
     )
+    rows = rooms_result.all()
+    tasked = await _rooms_with_open_task(db, [room.id for room, _ in rows])
     rooms_by_floor: dict[int, list[MapRoomRead]] = {}
-    for room, placement in rooms_result.all():
+    for room, placement in rows:
         rooms_by_floor.setdefault(room.floor, []).append(
-            _map_room(room, placement)
+            _map_room(room, placement, room.id in tasked)
         )
 
     floors = sorted(set(floor_maps) | set(rooms_by_floor))
