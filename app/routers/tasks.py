@@ -295,6 +295,25 @@ async def update_task(
     return task
 
 
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task(
+    hotel_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_manager_or_above),
+) -> None:
+    """Permanently delete a task. Manager/front-desk/admin only.
+
+    Used by the edit-task modal's Delete button to drop a task created in error
+    or no longer needed. Completed tasks are normally cleared (soft-archived via
+    clear-completed) to keep their "last cleaned by" credit, but a room's credit
+    lives on the room itself, so deleting the row outright is safe."""
+    require_same_hotel(hotel_id, current_user)
+    task = await _get_task_in_hotel_or_404(db, hotel_id, task_id)
+    await db.delete(task)
+    await db.commit()
+
+
 @router.patch("/{task_id}/status", response_model=TaskRead)
 async def update_task_status(
     hotel_id: uuid.UUID,
