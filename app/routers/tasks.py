@@ -190,17 +190,32 @@ async def import_dirty_rooms_endpoint(
     current_user: User = Depends(require_manager_or_above),
 ) -> DirtyRoomImportResponse:
     """Bulk-import a list of dirty rooms (e.g. from a manager's CSV): set each
-    room dirty, create a cleaning task per room, and optionally split the new
-    tasks evenly across the chosen housekeepers. See the shared core in
-    app/services/task_import.py for the full contract."""
+    room dirty, create a cleaning task per room, and either split the new tasks
+    evenly across the chosen housekeepers or — when `assignments` is given (the
+    floor-map zone flow) — honor an explicit room → housekeeper map. See the
+    shared core in app/services/task_import.py for the full contract."""
     require_same_hotel(hotel_id, current_user)
+
+    if payload.assignments is not None:
+        # Explicit path: rooms + housekeepers come from the assignment map, and
+        # the balancer is skipped. Pass every referenced housekeeper id as a ref
+        # so they're validated/reported exactly like the even-split path.
+        explicit = {a.room_number: a.housekeeper_id for a in payload.assignments}
+        room_numbers = [a.room_number for a in payload.assignments]
+        housekeeper_refs = [str(hk_id) for hk_id in dict.fromkeys(explicit.values())]
+    else:
+        explicit = None
+        room_numbers = payload.rooms
+        housekeeper_refs = [str(hk_id) for hk_id in payload.housekeeper_ids]
+
     summary = await import_dirty_rooms(
         db,
         hotel_id=hotel_id,
-        room_numbers=payload.rooms,
-        housekeeper_refs=[str(hk_id) for hk_id in payload.housekeeper_ids],
+        room_numbers=room_numbers,
+        housekeeper_refs=housekeeper_refs,
         resolve_mode="id",
         priority=payload.priority,
+        explicit_assignments=explicit,
     )
     return DirtyRoomImportResponse(**summary)
 

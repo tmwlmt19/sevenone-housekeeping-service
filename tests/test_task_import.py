@@ -384,3 +384,150 @@ async def test_import_deduplicates_repeated_room_numbers(
     )
     assert r.status_code == 201
     assert r.json()["tasks_created"] == 1
+
+
+# --- Explicit assignments (floor-map zone flow) -----------------------------
+
+
+async def _tasks_by_room(client, hotel, manager):
+    """room_number -> task dict, for asserting who each room went to."""
+    rooms = (
+        await client.get(
+            f"/api/v1/hotels/{hotel.id}/rooms", headers=auth_headers(manager)
+        )
+    ).json()
+    number_by_id = {r["id"]: r["room_number"] for r in rooms}
+    tasks = (
+        await client.get(
+            f"/api/v1/hotels/{hotel.id}/tasks", headers=auth_headers(manager)
+        )
+    ).json()
+    return {number_by_id[t["room_id"]]: t for t in tasks}
+
+
+async def test_import_explicit_assignments_honored(
+    client, db_session, test_hotel, manager_user
+):
+    # room1->A, room2->B, room3->A: honored verbatim, NOT even-split (which would
+    # give each housekeeper a contiguous share by natural order).
+    for n in ("201", "202", "203"):
+        await _room(db_session, test_hotel, n)
+    hk_a = await _housekeeper(db_session, test_hotel, "a@test.com", "Ann")
+    hk_b = await _housekeeper(db_session, test_hotel, "b@test.com", "Bob")
+
+    r = await _import(
+        client,
+        test_hotel,
+        manager_user,
+        assignments=[
+            {"room_number": "201", "housekeeper_id": str(hk_a.id)},
+            {"room_number": "202", "housekeeper_id": str(hk_b.id)},
+            {"room_number": "203", "housekeeper_id": str(hk_a.id)},
+        ],
+    )
+
+    assert r.status_code == 201
+    body = r.json()
+    assert body["tasks_created"] == 3
+    assert body["rooms_set_dirty"] == 3
+    counts = {a["housekeeper_id"]: a["tasks_assigned"] for a in body["assignments"]}
+    assert counts == {str(hk_a.id): 2, str(hk_b.id): 1}
+
+    by_room = await _tasks_by_room(client, test_hotel, manager_user)
+    assert by_room["201"]["assigned_to"] == str(hk_a.id)
+    assert by_room["202"]["assigned_to"] == str(hk_b.id)
+    assert by_room["203"]["assigned_to"] == str(hk_a.id)
+    assert all(t["status"] == "assigned" for t in by_room.values())
+
+
+async def test_import_explicit_skips_still_apply(
+    client, db_session, test_hotel, manager_user, housekeeper_user
+):
+    # An out-of-service room and one already carrying an open task are named in
+    # the assignments but produce no new task; the clean room does.
+    clean = await _room(db_session, test_hotel, "201")
+    oos = await _room(
+        db_session, test_hotel, "202", status=RoomStatus.OUT_OF_SERVICE
+    )
+    busy = await _room(db_session, test_hotel, "203")
+    await _assigned_task(db_session, test_hotel, busy, housekeeper_user)
+    hk = await _housekeeper(db_session, test_hotel, "a@test.com", "Ann")
+
+    r = await _import(
+        client,
+        test_hotel,
+        manager_user,
+        assignments=[
+            {"room_number": "201", "housekeeper_id": str(hk.id)},
+            {"room_number": "202", "housekeeper_id": str(hk.id)},
+            {"room_number": "203", "housekeeper_id": str(hk.id)},
+        ],
+    )
+
+    assert r.status_code == 201
+    body = r.json()
+    assert body["tasks_created"] == 1
+    reasons = {s["room_number"]: s["reason"] for s in body["skipped"]}
+    assert reasons == {"202": "out_of_service", "203": "existing_open_task"}
+    assert clean and oos  # (bind names for readability)
+
+
+async def test_import_explicit_unknown_room_rejects_whole_batch(
+    client, db_session, test_hotel, manager_user
+):
+    await _room(db_session, test_hotel, "201")
+    hk = await _housekeeper(db_session, test_hotel, "a@test.com", "Ann")
+
+    r = await _import(
+        client,
+        test_hotel,
+        manager_user,
+        assignments=[
+            {"room_number": "201", "housekeeper_id": str(hk.id)},
+            {"room_number": "999", "housekeeper_id": str(hk.id)},
+        ],
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["errors"][0]["field"] == "rooms"
+    # Nothing created.
+    tasks = (
+        await client.get(
+            f"/api/v1/hotels/{test_hotel.id}/tasks",
+            headers=auth_headers(manager_user),
+        )
+    ).json()
+    assert tasks == []
+
+
+async def test_import_explicit_non_housekeeper_rejected(
+    client, db_session, test_hotel, manager_user
+):
+    await _room(db_session, test_hotel, "201")
+    r = await _import(
+        client,
+        test_hotel,
+        manager_user,
+        assignments=[
+            {"room_number": "201", "housekeeper_id": str(manager_user.id)},
+        ],
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["errors"][0]["field"] == "housekeeper_ids"
+
+
+async def test_import_explicit_cross_hotel_housekeeper_rejected(
+    client, db_session, test_hotel, manager_user, other_hotel
+):
+    await _room(db_session, test_hotel, "201")
+    foreign_hk = await _housekeeper(
+        db_session, other_hotel, "foreign-hk@test.com", "Foreign HK"
+    )
+    r = await _import(
+        client,
+        test_hotel,
+        manager_user,
+        assignments=[
+            {"room_number": "201", "housekeeper_id": str(foreign_hk.id)},
+        ],
+    )
+    assert r.status_code == 422

@@ -12,7 +12,9 @@ Behavior (see docs/housekeeping/pms-task-import-plan.md):
 - Rooms already carrying an open task are skipped (idempotent re-pushes); rooms
   that are out-of-service are skipped for tasking. Both are reported, not errors.
 - New tasks are balance-assigned across the given housekeepers so each one's
-  *total* open workload ends up as even as possible.
+  *total* open workload ends up as even as possible — unless the caller passes an
+  explicit room → housekeeper map (`explicit_assignments`), in which case each
+  task goes to its named housekeeper and the balancer is skipped.
 """
 
 import heapq
@@ -173,11 +175,25 @@ async def import_dirty_rooms(
     housekeeper_refs: list[str],
     resolve_mode: ResolveMode,
     priority: TaskPriority = TaskPriority.NORMAL,
+    explicit_assignments: dict[str, uuid.UUID] | None = None,
     seed_errors: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run the import in a single transaction. Returns a summary dict shaped like
-    DirtyRoomImportResponse. Raises 422 (all-or-nothing) on any hard error."""
+    DirtyRoomImportResponse. Raises 422 (all-or-nothing) on any hard error.
+
+    `explicit_assignments` (room_number → housekeeper_id) switches off the
+    even-split balancer: each created task is assigned to its named housekeeper
+    verbatim. Callers pass every referenced housekeeper id in `housekeeper_refs`
+    (mode "id") so they're validated and reported like the even-split path. Rooms
+    that end up skipped (out-of-service / already carrying an open task) simply
+    produce no task, so their assignment is a no-op — same as even-split."""
     errors: list[dict[str, Any]] = list(seed_errors or [])
+    # Normalize keys to match the stripped room numbers resolved below.
+    explicit = (
+        {k.strip(): v for k, v in explicit_assignments.items()}
+        if explicit_assignments is not None
+        else None
+    )
 
     # --- Normalize + de-duplicate the requested room numbers -----------------
     unique_numbers: list[str] = []
@@ -264,9 +280,20 @@ async def import_dirty_rooms(
         )
         new_tasks.append((task, room.room_number))
 
-    # --- Balance-assign across housekeepers ----------------------------------
+    # --- Assign the new tasks ------------------------------------------------
+    # Two modes: explicit (honor the room → housekeeper map verbatim) or the
+    # even-split balancer. Both leave a task PENDING (unassigned) if no
+    # housekeeper is given for it.
     assignment_counts = {hk.id: 0 for hk in housekeepers}
-    if housekeepers and new_tasks:
+    if explicit is not None:
+        for task, room_number in new_tasks:
+            hk_id = explicit.get(room_number)
+            if hk_id is None or hk_id not in assignment_counts:
+                continue  # left unassigned / pending
+            task.assigned_to = hk_id
+            task.status = TaskStatus.ASSIGNED
+            assignment_counts[hk_id] += 1
+    elif housekeepers and new_tasks:
         existing_load = await _existing_open_counts(db, hotel_id, housekeepers)
         # Min-heap keyed by current load, then a stable unique tiebreak.
         heap: list[tuple[int, tuple[str, str], User]] = [
