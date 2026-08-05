@@ -175,6 +175,7 @@ async def import_dirty_rooms(
     housekeeper_refs: list[str],
     resolve_mode: ResolveMode,
     priority: TaskPriority = TaskPriority.NORMAL,
+    create_tasks: bool = True,
     explicit_assignments: dict[str, uuid.UUID] | None = None,
     seed_errors: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -186,7 +187,12 @@ async def import_dirty_rooms(
     verbatim. Callers pass every referenced housekeeper id in `housekeeper_refs`
     (mode "id") so they're validated and reported like the even-split path. Rooms
     that end up skipped (out-of-service / already carrying an open task) simply
-    produce no task, so their assignment is a no-op — same as even-split."""
+    produce no task, so their assignment is a no-op — same as even-split.
+
+    `create_tasks=False` marks the known rooms dirty (out-of-service still
+    skipped) and creates *no* tasks — the "assign them on the map later" path.
+    Housekeeper inputs and the existing-open-task check are irrelevant then and
+    skipped; the room still validation runs so a bad room number is caught."""
     errors: list[dict[str, Any]] = list(seed_errors or [])
     # Normalize keys to match the stripped room numbers resolved below.
     explicit = (
@@ -224,8 +230,13 @@ async def import_dirty_rooms(
             known_rooms.append(room)
 
     # --- Resolve housekeepers (collects into the same error list) ------------
-    housekeepers = await _resolve_housekeepers(
-        db, hotel_id, housekeeper_refs, resolve_mode, errors
+    # Only when we're creating tasks — the mark-dirty-only path ignores them.
+    housekeepers = (
+        await _resolve_housekeepers(
+            db, hotel_id, housekeeper_refs, resolve_mode, errors
+        )
+        if create_tasks
+        else []
     )
 
     if not unique_numbers and not errors:
@@ -239,7 +250,7 @@ async def import_dirty_rooms(
     # --- Which known rooms already have an open task? ------------------------
     room_ids = [room.id for room in known_rooms]
     rooms_with_open_task: set[uuid.UUID] = set()
-    if room_ids:
+    if create_tasks and room_ids:
         result = await db.execute(
             select(Task.room_id).where(
                 Task.hotel_id == hotel_id,
@@ -264,6 +275,10 @@ async def import_dirty_rooms(
 
         room.status = RoomStatus.DIRTY
         rooms_set_dirty += 1
+
+        # Mark-dirty-only path stops here — no task for this room.
+        if not create_tasks:
+            continue
 
         if room.id in rooms_with_open_task:
             skipped.append(

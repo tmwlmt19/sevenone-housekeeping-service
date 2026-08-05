@@ -215,6 +215,7 @@ async def import_dirty_rooms_endpoint(
         housekeeper_refs=housekeeper_refs,
         resolve_mode="id",
         priority=payload.priority,
+        create_tasks=payload.create_tasks,
         explicit_assignments=explicit,
     )
     return DirtyRoomImportResponse(**summary)

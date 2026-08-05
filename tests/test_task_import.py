@@ -531,3 +531,72 @@ async def test_import_explicit_cross_hotel_housekeeper_rejected(
         ],
     )
     assert r.status_code == 422
+
+
+# --- Mark dirty without creating tasks (assign-on-map later) -----------------
+
+
+async def test_import_mark_dirty_only_creates_no_tasks(
+    client, db_session, test_hotel, manager_user
+):
+    await _room(db_session, test_hotel, "201")
+    await _room(db_session, test_hotel, "202", status=RoomStatus.OUT_OF_SERVICE)
+    r = await _import(
+        client, test_hotel, manager_user, rooms=["201", "202"], create_tasks=False
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["tasks_created"] == 0
+    assert body["rooms_set_dirty"] == 1  # out-of-service still skipped
+    assert body["assignments"] == []
+    assert [s["reason"] for s in body["skipped"]] == ["out_of_service"]
+
+    # No task created; room 201 is now dirty.
+    tasks = (
+        await client.get(
+            f"/api/v1/hotels/{test_hotel.id}/tasks",
+            headers=auth_headers(manager_user),
+        )
+    ).json()
+    assert tasks == []
+    rooms = (
+        await client.get(
+            f"/api/v1/hotels/{test_hotel.id}/rooms",
+            headers=auth_headers(manager_user),
+        )
+    ).json()
+    by_num = {r["room_number"]: r for r in rooms}
+    assert by_num["201"]["status"] == "dirty"
+
+
+async def test_import_mark_dirty_only_ignores_open_task_and_housekeepers(
+    client, db_session, test_hotel, manager_user, housekeeper_user
+):
+    # A room already carrying an open task is NOT reported as skipped here (the
+    # existing-open-task check only matters when creating tasks); it just stays
+    # dirty. Housekeeper ids are ignored, not validated.
+    busy = await _room(db_session, test_hotel, "201")
+    await _assigned_task(db_session, test_hotel, busy, housekeeper_user)
+    r = await _import(
+        client,
+        test_hotel,
+        manager_user,
+        rooms=["201"],
+        housekeeper_ids=[str(uuid.uuid4())],  # bogus, but ignored
+        create_tasks=False,
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["tasks_created"] == 0
+    assert body["rooms_set_dirty"] == 1
+    assert body["skipped"] == []
+
+
+async def test_import_mark_dirty_only_unknown_room_rejected(
+    client, db_session, test_hotel, manager_user
+):
+    await _room(db_session, test_hotel, "201")
+    r = await _import(
+        client, test_hotel, manager_user, rooms=["201", "999"], create_tasks=False
+    )
+    assert r.status_code == 422
