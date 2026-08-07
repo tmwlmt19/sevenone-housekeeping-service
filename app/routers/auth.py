@@ -1,19 +1,27 @@
 import hashlib
 import logging
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import create_access_token, hash_password, verify_password
+from app.auth import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.email import send_password_reset_email
+from app.models.enums import ShiftCloseReason, UserRole
 from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
+from app.services import shifts
 from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -82,8 +90,51 @@ async def login(
     return Token(access_token=token)
 
 
+def _token_from_request(request: Request) -> str | None:
+    cookie = request.cookies.get(settings.session_cookie_name)
+    if cookie:
+        return cookie
+    header = request.headers.get("Authorization")
+    if header and header.lower().startswith("bearer "):
+        return header[7:]
+    return None
+
+
+async def _close_open_shift_on_logout(request: Request, db: AsyncSession) -> None:
+    """Clock-out == logout: if a housekeeper logs out with an open shift, close
+    it so the shift is bounded. Best-effort — logout must never fail on this."""
+    try:
+        token = _token_from_request(request)
+        if not token:
+            return
+        claims = decode_access_token(token)
+        subject = claims.get("sub") if claims else None
+        if not subject:
+            return
+        user = await db.get(User, uuid.UUID(subject))
+        if (
+            user is None
+            or user.role != UserRole.HOUSEKEEPER
+            or user.hotel_id is None
+        ):
+            return
+        shift = await shifts.get_open_shift(
+            db, hotel_id=user.hotel_id, housekeeper_id=user.id
+        )
+        if shift is not None:
+            await shifts.close_shift(db, shift, reason=ShiftCloseReason.LOGOUT)
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to close shift on logout")
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(response: Response) -> None:
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await _close_open_shift_on_logout(request, db)
     response.delete_cookie(
         key=settings.session_cookie_name,
         domain=settings.cookie_domain,

@@ -52,6 +52,12 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     due_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Set when the task first moves to in_progress (the housekeeper taps "Start");
+    # cleared on reassignment so the new owner's clock starts fresh. Used to
+    # measure clean time (finish − start) for the stats dashboard.
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

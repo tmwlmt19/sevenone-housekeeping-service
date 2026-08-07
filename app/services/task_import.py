@@ -31,6 +31,7 @@ from app.models.enums import RoomStatus, TaskPriority, TaskStatus, UserRole
 from app.models.room import Room
 from app.models.task import Task
 from app.models.user import User
+from app.services import stats
 
 # Task states that mean a room already has a live cleaning task, so a re-import
 # skips it instead of raising a duplicate. Includes PENDING_APPROVAL: the room's
@@ -324,6 +325,10 @@ async def import_dirty_rooms(
             heapq.heappush(heap, (load + 1, tiebreak, hk))
 
     db.add_all([task for task, _ in new_tasks])
+    for hk_id, assigned in assignment_counts.items():
+        await stats.record_assignments(
+            db, hotel_id=hotel_id, housekeeper_id=hk_id, count=assigned
+        )
     await db.commit()
 
     return {

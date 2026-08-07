@@ -79,6 +79,7 @@ class TaskRead(BaseModel):
     priority: TaskPriority
     notes: str | None
     due_date: datetime | None
+    started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
