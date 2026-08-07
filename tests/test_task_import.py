@@ -6,6 +6,7 @@ test_integrations_pms.py; both share this core.
 """
 
 import uuid
+from datetime import datetime, timezone
 
 from conftest import auth_headers
 
@@ -82,6 +83,14 @@ async def test_import_creates_tasks_and_sets_rooms_dirty_unassigned(
     assert len(tasks) == 2
     assert all(t["status"] == "pending" and t["assigned_to"] is None for t in tasks)
     assert all(t["due_date"] is not None for t in tasks)
+    # Due date is today, anchored at noon UTC — NOT midnight, which lands on the
+    # previous local day for behind-UTC viewers and made every imported task read
+    # as yesterday/overdue/urgent. See _today_due_date.
+    today = datetime.now(timezone.utc).date()
+    for t in tasks:
+        due = datetime.fromisoformat(t["due_date"])
+        assert due.astimezone(timezone.utc).date() == today
+        assert due.astimezone(timezone.utc).hour == 12
 
 
 async def test_import_default_priority_and_override(

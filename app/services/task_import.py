@@ -65,9 +65,19 @@ def _natural_key(room_number: str) -> list[object]:
     ]
 
 
-def _today_utc_midnight() -> datetime:
+def _today_due_date() -> datetime:
+    """Due date for auto-created cleaning tasks: **today**, anchored at noon UTC.
+
+    Due dates are date-only in the product but stored as timestamps and compared
+    in the *viewer's* local timezone (web `isOverdue` in lib/tasks.ts). Midnight
+    UTC lands on the previous local day for any negative UTC offset (the US, etc.),
+    so every imported task read as *yesterday* and was therefore overdue → shown
+    urgent. Noon UTC maps to today's calendar day for every offset from -12 to
+    +11. (A precise fix awaits a per-hotel timezone — see stats-dashboard-plan
+    §9 / hotel-map notes.)
+    """
     now = datetime.now(timezone.utc)
-    return datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    return datetime(now.year, now.month, now.day, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _raise_validation(errors: list[dict[str, Any]]) -> None:
@@ -264,7 +274,7 @@ async def import_dirty_rooms(
     # --- Set dirty, skip as needed, create the new tasks ---------------------
     skipped: list[dict[str, Any]] = []
     rooms_set_dirty = 0
-    due_date = _today_utc_midnight()
+    due_date = _today_due_date()
     new_tasks: list[tuple[Task, str]] = []  # (task, room_number) for stable order
 
     for room in known_rooms:
