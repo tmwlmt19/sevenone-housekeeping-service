@@ -44,8 +44,8 @@ class EfficiencyResponse(BaseModel):
 class HousekeeperLoad(BaseModel):
     housekeeper_id: uuid.UUID
     name: str
-    tasks_assigned: int
-    tasks_completed: int
+    open_tasks: int  # current open tasks assigned to them (live, not windowed)
+    tasks_completed: int  # completed within the window
     clean_seconds_total: int
     shift_seconds_total: int
     utilization_pct: float | None  # clean ÷ shift; null when no shift time

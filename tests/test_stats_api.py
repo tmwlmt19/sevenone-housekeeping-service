@@ -8,7 +8,9 @@ from datetime import date
 
 from conftest import auth_headers
 
+from app.models.enums import TaskPriority, TaskStatus
 from app.models.stats import HousekeeperDailyStats, HousekeeperRoomTypeDailyStats
+from app.models.task import Task
 
 D1 = date(2026, 8, 5)
 D2 = date(2026, 8, 6)
@@ -89,7 +91,6 @@ async def test_task_load_aggregates_and_utilization(
     assert r.status_code == 200
     body = r.json()
     hk = _find(body["by_housekeeper"], housekeeper_user.id)
-    assert hk["tasks_assigned"] == 4
     assert hk["tasks_completed"] == 3
     assert hk["clean_seconds_total"] == 2700
     assert hk["shift_seconds_total"] == 7200
@@ -183,14 +184,42 @@ async def test_window_excludes_out_of_range_rows(
 ):
     await _seed_daily(
         db_session, test_hotel, housekeeper_user, date(2026, 7, 1),
-        tasks_assigned=99,
+        tasks_completed=99,
     )
     await _seed_daily(
-        db_session, test_hotel, housekeeper_user, D1, tasks_assigned=2,
+        db_session, test_hotel, housekeeper_user, D1, tasks_completed=2,
     )
     r = await client.get(
         _url(test_hotel, "/task-load?from=2026-08-01&to=2026-08-31"),
         headers=auth_headers(manager_user),
     )
     hk = _find(r.json()["by_housekeeper"], housekeeper_user.id)
-    assert hk["tasks_assigned"] == 2
+    assert hk["tasks_completed"] == 2
+
+
+async def test_task_load_open_tasks_are_live_not_cumulative(
+    client, db_session, test_hotel, test_room, housekeeper_user, manager_user
+):
+    # Live board: two open tasks + one completed. open_tasks must reflect current
+    # open work only — not completed tasks, and not any historical rollup counts.
+    for status in (
+        TaskStatus.ASSIGNED,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.COMPLETED,
+    ):
+        db_session.add(
+            Task(
+                hotel_id=test_hotel.id,
+                room_id=test_room.id,
+                assigned_to=housekeeper_user.id,
+                status=status,
+                priority=TaskPriority.NORMAL,
+            )
+        )
+    await db_session.flush()
+
+    r = await client.get(
+        _url(test_hotel, "/task-load"), headers=auth_headers(manager_user)
+    )
+    hk = _find(r.json()["by_housekeeper"], housekeeper_user.id)
+    assert hk["open_tasks"] == 2
