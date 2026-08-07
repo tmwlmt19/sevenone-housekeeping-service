@@ -15,9 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import require_manager_or_above, require_same_hotel
-from app.models.enums import UserRole
+from app.models.enums import TaskStatus, UserRole
+from app.models.shift import Shift
 from app.models.stats import HousekeeperDailyStats, HousekeeperRoomTypeDailyStats
+from app.models.task import Task
 from app.models.user import User
+from app.services.shifts import MAX_SHIFT_HOURS
 from app.schemas.stats import (
     CleanTimesResponse,
     EfficiencyResponse,
@@ -32,6 +35,14 @@ router = APIRouter(prefix="/api/v1/hotels/{hotel_id}/stats", tags=["stats"])
 
 # Default window length when the caller doesn't pass `from`.
 _DEFAULT_WINDOW_DAYS = 7
+
+# A task the housekeeper still has to do — their live workload. Excludes
+# pending_approval (finished from their side) and completed/archived.
+_OPEN_TASK_STATUSES = (
+    TaskStatus.PENDING,
+    TaskStatus.ASSIGNED,
+    TaskStatus.IN_PROGRESS,
+)
 
 
 def _resolve_window(
@@ -193,6 +204,44 @@ async def efficiency(
     )
 
 
+async def _open_task_counts(
+    db: AsyncSession, hotel_id: uuid.UUID
+) -> dict[uuid.UUID, int]:
+    """Current open tasks per housekeeper (live board state, not windowed) — the
+    workload the load chart actually wants."""
+    result = await db.execute(
+        select(Task.assigned_to, func.count())
+        .where(
+            Task.hotel_id == hotel_id,
+            Task.assigned_to.is_not(None),
+            Task.archived_at.is_(None),
+            Task.status.in_(_OPEN_TASK_STATUSES),
+        )
+        .group_by(Task.assigned_to)
+    )
+    return {row[0]: int(row[1]) for row in result.all()}
+
+
+async def _open_shift_seconds(
+    db: AsyncSession, hotel_id: uuid.UUID
+) -> dict[uuid.UUID, int]:
+    """Elapsed (capped) seconds of currently-open shifts, per housekeeper, so
+    utilization reflects an in-progress shift rather than only closed ones."""
+    now = datetime.now(timezone.utc)
+    cap = timedelta(hours=MAX_SHIFT_HOURS)
+    result = await db.execute(
+        select(Shift.housekeeper_id, Shift.started_at).where(
+            Shift.hotel_id == hotel_id, Shift.ended_at.is_(None)
+        )
+    )
+    out: dict[uuid.UUID, int] = {}
+    for hk_id, started_at in result.all():
+        secs = int(min(now - started_at, cap).total_seconds())
+        if secs > 0:
+            out[hk_id] = out.get(hk_id, 0) + secs
+    return out
+
+
 @router.get("/task-load", response_model=TaskLoadResponse)
 async def task_load(
     hotel_id: uuid.UUID,
@@ -201,12 +250,21 @@ async def task_load(
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
 ) -> TaskLoadResponse:
-    """Per housekeeper: tasks assigned/completed and utilization; plus the
-    hotel-wide utilization (are more or fewer housekeepers needed?)."""
+    """Per housekeeper: current open tasks (live) + completions in the window,
+    and utilization; plus hotel-wide utilization (are more/fewer housekeepers
+    needed?). Open-task counts are live board state; completions/utilization are
+    over the window. When the window includes today, currently-open shifts count
+    toward utilization so it isn't blank until someone logs out."""
     require_same_hotel(hotel_id, current_user)
     frm, to = _resolve_window(date_from, date_to)
     roster = await _housekeepers(db, hotel_id)
     totals = await _daily_totals(db, hotel_id, frm, to)
+    open_counts = await _open_task_counts(db, hotel_id)
+    # Only fold in live open-shift time when the window actually reaches today.
+    include_live = to >= datetime.now(timezone.utc).date()
+    open_shift_secs = (
+        await _open_shift_seconds(db, hotel_id) if include_live else {}
+    )
 
     by_housekeeper = []
     hotel_clean = 0
@@ -214,14 +272,14 @@ async def task_load(
     for hk_id, name in roster:
         t = totals.get(hk_id, {})
         clean = t.get("clean_seconds_total", 0)
-        shift = t.get("shift_seconds_total", 0)
+        shift = t.get("shift_seconds_total", 0) + open_shift_secs.get(hk_id, 0)
         hotel_clean += clean
         hotel_shift += shift
         by_housekeeper.append(
             HousekeeperLoad(
                 housekeeper_id=hk_id,
                 name=name,
-                tasks_assigned=t.get("tasks_assigned", 0),
+                open_tasks=open_counts.get(hk_id, 0),
                 tasks_completed=t.get("tasks_completed", 0),
                 clean_seconds_total=clean,
                 shift_seconds_total=shift,
