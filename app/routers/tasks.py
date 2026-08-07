@@ -30,7 +30,7 @@ from app.schemas.task_import import (
     DirtyRoomImportRequest,
     DirtyRoomImportResponse,
 )
-from app.services import workload
+from app.services import stats, workload
 from app.services.task_import import import_dirty_rooms
 
 router = APIRouter(prefix="/api/v1/hotels/{hotel_id}/tasks", tags=["tasks"])
@@ -72,18 +72,50 @@ async def _validate_assignee(
         )
 
 
-async def _apply_completion_side_effects(
+# A task the housekeeper has finished working on (their part is done, whether or
+# not a manager has approved it yet). Crossing INTO this set is a "clean finished"
+# event; the pending_approval -> completed approval step stays within it.
+_FINISHED_STATUSES = (TaskStatus.PENDING_APPROVAL, TaskStatus.COMPLETED)
+
+
+async def _apply_status_side_effects(
     db: AsyncSession,
     task: Task,
     new_status: TaskStatus,
     *,
+    old_status: TaskStatus,
     cleaned_by: uuid.UUID | None = None,
 ) -> None:
-    """Keep completed_at, the room's status, and last_cleaned_by in sync with the
-    task status. On completion the room is marked clean and credited to the
-    housekeeper who did the work (the assignee), falling back to whoever completed
-    it. Any non-completed status (incl. pending_approval) clears completed_at."""
-    if new_status == TaskStatus.COMPLETED and task.status != TaskStatus.COMPLETED:
+    """Keep started_at/completed_at, the room, and the stats rollups in sync with
+    a task's status. `old_status` is the status before this change (callers pass
+    it because the task object may or may not have been mutated yet).
+
+    - First move to in_progress stamps started_at — the clean's clock start.
+    - When the housekeeper *finishes* (submits for approval, or completes
+      directly) we record the clean exactly once, timed at the finish rather than
+      a later manager approval, so approval latency never inflates clean time.
+    - Completion still marks the room clean and credits the housekeeper (the
+      assignee, falling back to whoever completed it); non-completed statuses
+      clear completed_at."""
+    if new_status == TaskStatus.IN_PROGRESS and task.started_at is None:
+        task.started_at = datetime.now(timezone.utc)
+
+    if (
+        new_status in _FINISHED_STATUSES
+        and old_status not in _FINISHED_STATUSES
+        and task.assigned_to is not None
+    ):
+        room = await db.get(Room, task.room_id)
+        await stats.record_clean(
+            db,
+            hotel_id=task.hotel_id,
+            housekeeper_id=task.assigned_to,
+            room_type=room.room_type if room is not None else None,
+            started_at=task.started_at,
+            finished_at=datetime.now(timezone.utc),
+        )
+
+    if new_status == TaskStatus.COMPLETED and old_status != TaskStatus.COMPLETED:
         task.completed_at = datetime.now(timezone.utc)
         room = await db.get(Room, task.room_id)
         if room is not None:
@@ -111,9 +143,15 @@ async def create_task(
         data["status"] = TaskStatus.ASSIGNED
 
     task = Task(hotel_id=hotel_id, **data)
-    if task.status == TaskStatus.COMPLETED:
-        await _apply_completion_side_effects(
-            db, task, TaskStatus.COMPLETED, cleaned_by=current_user.id
+    # Apply side effects for the created state as a transition from "new" (a fresh
+    # task is unfinished) — handles a task created straight to in_progress /
+    # completed, and records the clean/completion if so.
+    await _apply_status_side_effects(
+        db, task, task.status, old_status=TaskStatus.PENDING, cleaned_by=current_user.id
+    )
+    if task.assigned_to is not None:
+        await stats.record_assignments(
+            db, hotel_id=hotel_id, housekeeper_id=task.assigned_to
         )
     db.add(task)
     await db.commit()
@@ -277,18 +315,29 @@ async def update_task(
     require_same_hotel(hotel_id, current_user)
     task = await _get_task_in_hotel_or_404(db, hotel_id, task_id)
 
+    old_status = task.status
+    old_assigned_to = task.assigned_to
+
     data = payload.model_dump(exclude_unset=True)
     if "room_id" in data:
         await _validate_room(db, hotel_id, data["room_id"])
     if data.get("assigned_to") is not None:
         await _validate_assignee(db, hotel_id, data["assigned_to"])
 
-    if "status" in data:
-        await _apply_completion_side_effects(
-            db, task, data["status"], cleaned_by=current_user.id
-        )
+    # Apply field changes first so status side effects credit the *new* assignee.
     for field, value in data.items():
         setattr(task, field, value)
+
+    if "status" in data:
+        await _apply_status_side_effects(
+            db, task, data["status"], old_status=old_status, cleaned_by=current_user.id
+        )
+
+    new_assigned_to = data.get("assigned_to")
+    if new_assigned_to is not None and new_assigned_to != old_assigned_to:
+        await stats.record_assignments(
+            db, hotel_id=hotel_id, housekeeper_id=new_assigned_to
+        )
 
     await db.commit()
     await db.refresh(task)
@@ -356,8 +405,9 @@ async def update_task_status(
         if hotel is not None and not hotel.auto_approve_tasks:
             new_status = TaskStatus.PENDING_APPROVAL
 
-    await _apply_completion_side_effects(
-        db, task, new_status, cleaned_by=current_user.id
+    old_status = task.status
+    await _apply_status_side_effects(
+        db, task, new_status, old_status=old_status, cleaned_by=current_user.id
     )
     task.status = new_status
     await db.commit()

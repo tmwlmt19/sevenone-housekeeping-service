@@ -13,6 +13,8 @@ from app.routers import (
     hotels,
     integrations,
     rooms,
+    shifts,
+    stats,
     tasks,
     users,
 )
@@ -77,6 +79,8 @@ app.include_router(hotels.router)
 app.include_router(users.router)
 app.include_router(rooms.router)
 app.include_router(tasks.router)
+app.include_router(shifts.router)
+app.include_router(stats.router)
 app.include_router(floor_maps.router)
 app.include_router(access_requests.router)
 app.include_router(api_keys.router)

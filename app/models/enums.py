@@ -61,3 +61,18 @@ class RequestStatus(str, enum.Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class ShiftCloseReason(str, enum.Enum):
+    """Why a housekeeper's shift was closed."""
+
+    # Normal end of shift: the housekeeper logged out / tapped clock-out.
+    LOGOUT = "logout"
+    # A prior shift was still open when the housekeeper clocked in again — the
+    # stale one is auto-closed (capped) so a forgotten logout can't run forever.
+    STALE_RECLOCK = "stale_reclock"
+    # Auto-closed at the maximum shift length (a forgotten logout that was never
+    # followed by another clock-in).
+    DAILY_CAP = "daily_cap"
+    # Closed by a manager/admin action.
+    MANUAL = "manual"

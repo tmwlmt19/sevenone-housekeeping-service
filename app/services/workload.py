@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import TaskStatus, UserRole
 from app.models.task import Task
 from app.models.user import User
+from app.services import stats
 
 # Task states that count as "open" — the ones a housekeeper still has to do, and
 # so the ones a reassign/redistribute moves. A pending_approval task is finished
@@ -122,9 +123,11 @@ async def _existing_open_counts(
 def _assign(task: Task, housekeeper_id: uuid.UUID) -> None:
     """Hand a task to a housekeeper: whatever state it was in (assigned, or a
     half-done in_progress the caller can't finish), it becomes a fresh assignment
-    for the new person."""
+    for the new person. The clean's clock (started_at) is cleared so the new
+    owner's clean time is measured from when *they* start."""
     task.assigned_to = housekeeper_id
     task.status = TaskStatus.ASSIGNED
+    task.started_at = None
 
 
 def _summarize(
@@ -161,6 +164,10 @@ async def reassign_all(
     tasks = await _open_tasks_assigned_to(db, hotel_id, from_id)
     for task in tasks:
         _assign(task, to_id)
+    if tasks:
+        await stats.record_assignments(
+            db, hotel_id=hotel_id, housekeeper_id=to_id, count=len(tasks)
+        )
     await db.commit()
 
     return {
@@ -209,6 +216,10 @@ async def redistribute(
             counts[hk.id] += 1
             heapq.heappush(heap, (load + 1, tiebreak, hk))
 
+    for hk_id, moved in counts.items():
+        await stats.record_assignments(
+            db, hotel_id=hotel_id, housekeeper_id=hk_id, count=moved
+        )
     await db.commit()
 
     return {
