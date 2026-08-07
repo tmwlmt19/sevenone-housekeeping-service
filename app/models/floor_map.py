@@ -12,7 +12,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -24,11 +24,12 @@ if TYPE_CHECKING:
 
 
 class FloorMap(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """One saved layout per (hotel, floor): the canvas extent and snap grid.
+    """One saved layout per (hotel, floor): the canvas extent, snap grid, and the
+    floor's own outline polygon.
 
     Rooms are NOT stored here — they stay in `rooms` and are positioned via
-    `room_placements`; non-room chrome lives in `floor_decorations`. This row only
-    holds the floor's dimensions, so every existing rooms query is untouched. A
+    `room_placements`; non-room chrome lives in `floor_decorations`. This row holds
+    the floor's dimensions + shape, so every existing rooms query is untouched. A
     floor with rooms but no `floor_maps` row simply hasn't been mapped yet.
     """
 
@@ -48,13 +49,16 @@ class FloorMap(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     floor: Mapped[int] = mapped_column(Integer, nullable=False)
     # Optional human label, e.g. "Ground Floor", "Tower 2".
     name: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    # Canvas extent, in feet ("nearest foot" precision).
+    # Canvas / viewBox extent, in feet. The outline sits inside this box.
     width_ft: Mapped[int] = mapped_column(Integer, nullable=False)
     height_ft: Mapped[int] = mapped_column(Integer, nullable=False)
     # Snap increment in feet for the editor's drag/resize.
     grid_ft: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default=text("1"), default=1
     )
+    # The floor's shape: an ordered list of [x, y] float-foot vertices. NULL means
+    # a plain width_ft × height_ft rectangle (so pre-polygon maps still render).
+    outline: Mapped[list[list[float]] | None] = mapped_column(JSONB, nullable=True)
 
     hotel: Mapped["Hotel"] = relationship(back_populates="floor_maps")
     decorations: Mapped[list["FloorDecoration"]] = relationship(
@@ -68,8 +72,9 @@ class RoomPlacement(Base):
 
     Kept separate from `rooms` so identity/status queries stay free of nullable
     layout fields; a room with no placement row is "unplaced" and surfaces in the
-    editor's tray to be dragged in. All geometry is integer feet. Only
-    `updated_at` is tracked — a placement's creation moment isn't meaningful.
+    editor's tray to be dragged in. Geometry is an absolute polygon (float feet);
+    a rectangle is just four right-angle vertices. Only `updated_at` is tracked —
+    a placement's creation moment isn't meaningful.
     """
 
     __tablename__ = "room_placements"
@@ -80,16 +85,14 @@ class RoomPlacement(Base):
         ForeignKey("rooms.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    # Top-left corner on the floor canvas, in feet.
-    x: Mapped[int] = mapped_column(Integer, nullable=False)
-    y: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Footprint, in feet.
-    w: Mapped[int] = mapped_column(Integer, nullable=False)
-    h: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Degrees; v1 uses 0 / 90 / 180 / 270.
-    rotation: Mapped[int] = mapped_column(
-        SmallInteger, nullable=False, server_default=text("0"), default=0
-    )
+    # The room's footprint: an ordered list of [x, y] float-foot vertices (>= 3).
+    # Rotation is baked into the vertices — there is no separate angle column.
+    vertices: Mapped[list[list[float]]] = mapped_column(JSONB, nullable=False)
+    # The room's door as an edge-relative reference {edge, t} — which wall (index
+    # into `vertices`) and where along it (0..1). Stays glued to the wall through
+    # moves/rotations; the future connection to the corridor network. NULL until
+    # a door is placed.
+    door: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -108,8 +111,9 @@ class FloorDecoration(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     can be addressed individually and, in a later phase, be the target of a
     cleaning task the way a room is. `kind` is a short code validated against the
     API's DecorationKind enum but stored as varchar (like room_type), so adding a
-    new kind needs no DB migration. Geometry is integer feet; decorations are
-    axis-aligned in v1 (no rotation).
+    new kind needs no DB migration. Geometry is an absolute polygon (float feet),
+    like a room; the one exception is a `label`, whose `vertices` is a single
+    [x, y] anchor point for its text.
     """
 
     __tablename__ = "floor_decorations"
@@ -122,12 +126,9 @@ class FloorDecoration(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    # Top-left corner + footprint on the floor canvas, in feet. A label may have
-    # a zero footprint (it's just anchored text).
-    x: Mapped[int] = mapped_column(Integer, nullable=False)
-    y: Mapped[int] = mapped_column(Integer, nullable=False)
-    w: Mapped[int] = mapped_column(Integer, nullable=False)
-    h: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Ordered [x, y] float-foot vertices (>= 3 for a shape; a single anchor point
+    # for a `label`).
+    vertices: Mapped[list[list[float]]] = mapped_column(JSONB, nullable=False)
     label: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
     floor_map: Mapped["FloorMap"] = relationship(back_populates="decorations")

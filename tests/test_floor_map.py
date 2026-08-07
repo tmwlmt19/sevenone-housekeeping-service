@@ -2,7 +2,8 @@
 
 RBAC is web-app-scoped: managers + front desk view, only managers edit; platform
 admins are intentionally excluded from both (they live in the owner console).
-See app/routers/floor_maps.py and hotel-map-plan.md.
+Geometry is absolute polygons (float feet); a rectangle is four right-angle
+vertices. See app/routers/floor_maps.py and hotel-map-plan.md.
 """
 
 import uuid
@@ -27,6 +28,12 @@ async def _add_room(db, hotel, number: str, floor: int | None) -> Room:
     return room
 
 
+def _rect(x: float, y: float, w: float, h: float) -> list[list[float]]:
+    """A rectangle as four absolute vertices — the polygon a placement/decoration
+    defaults to."""
+    return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+
+
 def _floor(body: dict, floor: int) -> dict:
     return next(f for f in body["floors"] if f["floor"] == floor)
 
@@ -43,8 +50,9 @@ async def test_manager_sees_unplaced_rooms(
     )
     assert r.status_code == 200
     floor1 = _floor(r.json(), 1)
-    # No saved map yet → null dimensions, grid defaults to 1.
+    # No saved map yet → null dimensions/outline, grid defaults to 1.
     assert floor1["width_ft"] is None
+    assert floor1["outline"] is None
     assert floor1["grid_ft"] == 1
     room = next(rm for rm in floor1["rooms"] if rm["id"] == str(test_room.id))
     assert room["placement"] is None
@@ -137,14 +145,9 @@ async def test_rooms_without_a_floor_are_excluded(
         headers=auth_headers(manager_user),
     )
     assert r.status_code == 200
-    all_room_ids = [
-        rm["id"] for f in r.json()["floors"] for rm in f["rooms"]
-    ]
     # The floor-less room appears nowhere on the map.
-    assert all_room_ids == [] or "999" not in [
-        rm["room_number"]
-        for f in r.json()["floors"]
-        for rm in f["rooms"]
+    assert "999" not in [
+        rm["room_number"] for f in r.json()["floors"] for rm in f["rooms"]
     ]
 
 
@@ -157,18 +160,16 @@ async def test_manager_saves_layout(client, manager_user, test_hotel, test_room)
         "width_ft": 200,
         "height_ft": 60,
         "grid_ft": 1,
+        "outline": _rect(0, 0, 200, 60),
         "decorations": [
-            {"kind": "hall", "x": 0, "y": 12, "w": 200, "h": 6},
-            {"kind": "stairs", "x": 4, "y": 0, "w": 8, "h": 10, "label": "S1"},
+            {"kind": "hall", "vertices": _rect(0, 12, 200, 6)},
+            {"kind": "stairs", "vertices": _rect(4, 0, 8, 10), "label": "S1"},
         ],
         "placements": [
             {
                 "room_id": str(test_room.id),
-                "x": 10,
-                "y": 20,
-                "w": 13,
-                "h": 26,
-                "rotation": 90,
+                "vertices": _rect(10, 20, 13, 26),
+                "door": {"edge": 2, "t": 0.5},
             }
         ],
     }
@@ -180,11 +181,11 @@ async def test_manager_saves_layout(client, manager_user, test_hotel, test_room)
     assert r.status_code == 200
     out = r.json()
     assert out["name"] == "Ground Floor"
+    assert out["outline"] == _rect(0, 0, 200, 60)
     assert len(out["decorations"]) == 2
     placed = next(rm for rm in out["rooms"] if rm["id"] == str(test_room.id))
-    assert placed["placement"] == {
-        "x": 10, "y": 20, "w": 13, "h": 26, "rotation": 90,
-    }
+    assert placed["placement"]["vertices"] == _rect(10, 20, 13, 26)
+    assert placed["placement"]["door"] == {"edge": 2, "t": 0.5}
 
     # And it persists: a follow-up GET shows the placement.
     got = await client.get(
@@ -193,8 +194,30 @@ async def test_manager_saves_layout(client, manager_user, test_hotel, test_room)
     )
     floor1 = _floor(got.json(), 1)
     assert floor1["width_ft"] == 200
+    assert floor1["outline"] == _rect(0, 0, 200, 60)
     room = next(rm for rm in floor1["rooms"] if rm["id"] == str(test_room.id))
-    assert room["placement"]["x"] == 10
+    assert room["placement"]["vertices"][0] == [10, 20]
+
+
+async def test_placement_door_defaults_to_null(
+    client, manager_user, test_hotel, test_room
+):
+    r = await client.put(
+        f"/api/v1/hotels/{test_hotel.id}/map/1",
+        headers=auth_headers(manager_user),
+        json={
+            "width_ft": 100,
+            "height_ft": 50,
+            "placements": [
+                {"room_id": str(test_room.id), "vertices": _rect(0, 0, 10, 10)}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    placed = next(
+        rm for rm in r.json()["rooms"] if rm["id"] == str(test_room.id)
+    )
+    assert placed["placement"]["door"] is None
 
 
 async def test_front_desk_cannot_edit(
@@ -239,7 +262,7 @@ async def test_reject_room_on_a_different_floor(
             "width_ft": 100,
             "height_ft": 50,
             "placements": [
-                {"room_id": str(upstairs.id), "x": 0, "y": 0, "w": 10, "h": 10}
+                {"room_id": str(upstairs.id), "vertices": _rect(0, 0, 10, 10)}
             ],
         },
     )
@@ -257,7 +280,7 @@ async def test_reject_cross_hotel_room(
             "width_ft": 100,
             "height_ft": 50,
             "placements": [
-                {"room_id": str(foreign.id), "x": 0, "y": 0, "w": 10, "h": 10}
+                {"room_id": str(foreign.id), "vertices": _rect(0, 0, 10, 10)}
             ],
         },
     )
@@ -272,10 +295,7 @@ async def test_reject_unknown_room(client, manager_user, test_hotel):
             "width_ft": 100,
             "height_ft": 50,
             "placements": [
-                {
-                    "room_id": str(uuid.uuid4()),
-                    "x": 0, "y": 0, "w": 10, "h": 10,
-                }
+                {"room_id": str(uuid.uuid4()), "vertices": _rect(0, 0, 10, 10)}
             ],
         },
     )
@@ -294,8 +314,8 @@ async def test_full_floor_replace_unplaces_omitted_rooms(
         json={
             **base,
             "placements": [
-                {"room_id": str(test_room.id), "x": 0, "y": 0, "w": 10, "h": 10},
-                {"room_id": str(other.id), "x": 20, "y": 0, "w": 10, "h": 10},
+                {"room_id": str(test_room.id), "vertices": _rect(0, 0, 10, 10)},
+                {"room_id": str(other.id), "vertices": _rect(20, 0, 10, 10)},
             ],
         },
     )
@@ -307,7 +327,7 @@ async def test_full_floor_replace_unplaces_omitted_rooms(
         json={
             **base,
             "placements": [
-                {"room_id": str(test_room.id), "x": 5, "y": 5, "w": 10, "h": 10}
+                {"room_id": str(test_room.id), "vertices": _rect(5, 5, 10, 10)}
             ],
         },
     )
@@ -317,9 +337,71 @@ async def test_full_floor_replace_unplaces_omitted_rooms(
     assert placements[str(other.id)] is None
 
 
-async def test_rotation_must_be_a_right_angle(
+# --- Polygon geometry validation ------------------------------------------
+
+
+async def test_rotated_polygon_is_accepted(
     client, manager_user, test_hotel, test_room
 ):
+    # A diamond (a square rotated 45°) — no longer a right-angle-only world.
+    diamond = [[10, 0], [20, 10], [10, 20], [0, 10]]
+    r = await client.put(
+        f"/api/v1/hotels/{test_hotel.id}/map/1",
+        headers=auth_headers(manager_user),
+        json={
+            "width_ft": 100,
+            "height_ft": 50,
+            "placements": [
+                {"room_id": str(test_room.id), "vertices": diamond}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    placed = next(
+        rm for rm in r.json()["rooms"] if rm["id"] == str(test_room.id)
+    )
+    assert placed["placement"]["vertices"] == diamond
+
+
+async def test_self_intersecting_polygon_rejected(
+    client, manager_user, test_hotel, test_room
+):
+    bowtie = [[0, 0], [10, 10], [10, 0], [0, 10]]
+    r = await client.put(
+        f"/api/v1/hotels/{test_hotel.id}/map/1",
+        headers=auth_headers(manager_user),
+        json={
+            "width_ft": 100,
+            "height_ft": 50,
+            "placements": [
+                {"room_id": str(test_room.id), "vertices": bowtie}
+            ],
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_too_few_vertices_rejected(
+    client, manager_user, test_hotel, test_room
+):
+    r = await client.put(
+        f"/api/v1/hotels/{test_hotel.id}/map/1",
+        headers=auth_headers(manager_user),
+        json={
+            "width_ft": 100,
+            "height_ft": 50,
+            "placements": [
+                {"room_id": str(test_room.id), "vertices": [[0, 0], [10, 10]]}
+            ],
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_zero_area_polygon_rejected(
+    client, manager_user, test_hotel, test_room
+):
+    # Three collinear points enclose no area.
     r = await client.put(
         f"/api/v1/hotels/{test_hotel.id}/map/1",
         headers=auth_headers(manager_user),
@@ -329,25 +411,8 @@ async def test_rotation_must_be_a_right_angle(
             "placements": [
                 {
                     "room_id": str(test_room.id),
-                    "x": 0, "y": 0, "w": 10, "h": 10, "rotation": 45,
+                    "vertices": [[0, 0], [10, 0], [20, 0]],
                 }
-            ],
-        },
-    )
-    assert r.status_code == 422
-
-
-async def test_zero_footprint_rejected(
-    client, manager_user, test_hotel, test_room
-):
-    r = await client.put(
-        f"/api/v1/hotels/{test_hotel.id}/map/1",
-        headers=auth_headers(manager_user),
-        json={
-            "width_ft": 100,
-            "height_ft": 50,
-            "placements": [
-                {"room_id": str(test_room.id), "x": 0, "y": 0, "w": 0, "h": 10}
             ],
         },
     )
@@ -363,7 +428,7 @@ async def test_new_decoration_gets_a_server_id(client, manager_user, test_hotel)
     r = await client.put(
         f"/api/v1/hotels/{test_hotel.id}/map/1",
         headers=auth_headers(manager_user),
-        json={**_MAP, "decorations": [{"kind": "hall", "x": 0, "y": 12, "w": 100, "h": 6}]},
+        json={**_MAP, "decorations": [{"kind": "hall", "vertices": _rect(0, 12, 100, 6)}]},
     )
     assert r.status_code == 200
     decos = r.json()["decorations"]
@@ -372,19 +437,22 @@ async def test_new_decoration_gets_a_server_id(client, manager_user, test_hotel)
     assert decos[0]["kind"] == "hall"
 
 
-async def test_label_may_have_zero_footprint(client, manager_user, test_hotel):
+async def test_label_is_an_anchor_point(client, manager_user, test_hotel):
+    # A label carries a single anchor point, not a filled polygon.
     r = await client.put(
         f"/api/v1/hotels/{test_hotel.id}/map/1",
         headers=auth_headers(manager_user),
         json={
             **_MAP,
             "decorations": [
-                {"kind": "label", "x": 40, "y": 2, "w": 0, "h": 0, "label": "Wing A"}
+                {"kind": "label", "vertices": [[40, 2]], "label": "Wing A"}
             ],
         },
     )
     assert r.status_code == 200
-    assert r.json()["decorations"][0]["label"] == "Wing A"
+    deco = r.json()["decorations"][0]
+    assert deco["label"] == "Wing A"
+    assert deco["vertices"] == [[40, 2]]
 
 
 async def test_decoration_id_is_stable_across_saves(
@@ -394,7 +462,7 @@ async def test_decoration_id_is_stable_across_saves(
     r1 = await client.put(
         url,
         headers=auth_headers(manager_user),
-        json={**_MAP, "decorations": [{"kind": "elevator", "x": 0, "y": 0, "w": 8, "h": 8}]},
+        json={**_MAP, "decorations": [{"kind": "elevator", "vertices": _rect(0, 0, 8, 8)}]},
     )
     deco_id = r1.json()["decorations"][0]["id"]
     # Echo the id back with a new position → update in place, id preserved.
@@ -404,14 +472,14 @@ async def test_decoration_id_is_stable_across_saves(
         json={
             **_MAP,
             "decorations": [
-                {"id": deco_id, "kind": "elevator", "x": 5, "y": 5, "w": 8, "h": 8}
+                {"id": deco_id, "kind": "elevator", "vertices": _rect(5, 5, 8, 8)}
             ],
         },
     )
     updated = r2.json()["decorations"]
     assert len(updated) == 1
     assert updated[0]["id"] == deco_id  # identity kept
-    assert updated[0]["x"] == 5  # moved
+    assert updated[0]["vertices"][0] == [5, 5]  # moved
 
 
 async def test_omitted_decoration_is_pruned(client, manager_user, test_hotel):
@@ -422,8 +490,8 @@ async def test_omitted_decoration_is_pruned(client, manager_user, test_hotel):
         json={
             **_MAP,
             "decorations": [
-                {"kind": "hall", "x": 0, "y": 0, "w": 100, "h": 4},
-                {"kind": "stairs", "x": 0, "y": 10, "w": 8, "h": 8, "label": "S1"},
+                {"kind": "hall", "vertices": _rect(0, 0, 100, 4)},
+                {"kind": "stairs", "vertices": _rect(0, 10, 8, 8), "label": "S1"},
             ],
         },
     )
@@ -436,7 +504,7 @@ async def test_omitted_decoration_is_pruned(client, manager_user, test_hotel):
         json={
             **_MAP,
             "decorations": [
-                {"id": keep["id"], "kind": "hall", "x": 0, "y": 0, "w": 100, "h": 4}
+                {"id": keep["id"], "kind": "hall", "vertices": _rect(0, 0, 100, 4)}
             ],
         },
     )
@@ -449,6 +517,6 @@ async def test_invalid_decoration_kind_rejected(client, manager_user, test_hotel
     r = await client.put(
         f"/api/v1/hotels/{test_hotel.id}/map/1",
         headers=auth_headers(manager_user),
-        json={**_MAP, "decorations": [{"kind": "pool", "x": 0, "y": 0, "w": 5, "h": 5}]},
+        json={**_MAP, "decorations": [{"kind": "pool", "vertices": _rect(0, 0, 5, 5)}]},
     )
     assert r.status_code == 422

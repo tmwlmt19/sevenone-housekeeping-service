@@ -150,6 +150,7 @@ async def get_hotel_map(
                     floor_maps[floor].height_ft if floor in floor_maps else None
                 ),
                 grid_ft=floor_maps[floor].grid_ft if floor in floor_maps else 1,
+                outline=floor_maps[floor].outline if floor in floor_maps else None,
                 decorations=(
                     decorations_by_map.get(floor_maps[floor].id, [])
                     if floor in floor_maps
@@ -210,6 +211,9 @@ async def put_floor_map(
     floor_map.width_ft = payload.width_ft
     floor_map.height_ft = payload.height_ft
     floor_map.grid_ft = payload.grid_ft
+    floor_map.outline = (
+        [[x, y] for x, y in payload.outline] if payload.outline is not None else None
+    )
     await db.flush()
 
     # Decorations: upsert by id so a decoration keeps its identity across saves
@@ -224,9 +228,10 @@ async def put_floor_map(
     seen: set[uuid.UUID] = set()
     for item in payload.decorations:
         deco = existing.get(item.id) if item.id is not None else None
+        vertices = [[x, y] for x, y in item.vertices]
         if deco is not None:
             deco.kind = item.kind
-            deco.x, deco.y, deco.w, deco.h = item.x, item.y, item.w, item.h
+            deco.vertices = vertices
             deco.label = item.label
             seen.add(deco.id)
         else:
@@ -234,10 +239,7 @@ async def put_floor_map(
                 FloorDecoration(
                     floor_map_id=floor_map.id,
                     kind=item.kind,
-                    x=item.x,
-                    y=item.y,
-                    w=item.w,
-                    h=item.h,
+                    vertices=vertices,
                     label=item.label,
                 )
             )
@@ -259,11 +261,12 @@ async def put_floor_map(
         db.add(
             RoomPlacement(
                 room_id=placement.room_id,
-                x=placement.x,
-                y=placement.y,
-                w=placement.w,
-                h=placement.h,
-                rotation=placement.rotation,
+                vertices=[[x, y] for x, y in placement.vertices],
+                door=(
+                    placement.door.model_dump()
+                    if placement.door is not None
+                    else None
+                ),
             )
         )
 
@@ -275,6 +278,7 @@ async def put_floor_map(
         width_ft=floor_map.width_ft,
         height_ft=floor_map.height_ft,
         grid_ft=floor_map.grid_ft,
+        outline=floor_map.outline,
         decorations=await _decorations_of(db, floor_map.id),
         rooms=await _rooms_on_floor(db, hotel_id, floor),
     )
